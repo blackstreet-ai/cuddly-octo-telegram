@@ -1,0 +1,40 @@
+app_name: adk-multi-agent-scaffold
+
+agents:
+  coordinator:
+    model: gemini-2.5-flash
+    name: coordinator
+    description: Coordinates greeting and task execution.
+    instruction: |
+      You are a coordinator. If the user needs greeting/clarification, delegate to greeter.
+      If the task is clear, delegate to executor. Use sub_agents appropriately.
+  greeter:
+    model: gemini-2.5-flash
+    name: greeter
+    description: Greets the user and clarifies intent.
+    instruction: |
+      Greet the user. Ask brief questions to clarify their goal and constraints.
+      Summarize their intent succinctly.
+  executor:
+    model: gemini-2.5-flash
+    name: executor
+    description: Executes tasks and uses tools to get results.
+    instruction: |
+      Execute the user's task. Use available tools when helpful.
+      Provide a concise, accurate final answer.
+
+mcp:
+  enabled: false
+  connection:
+    type: stdio
+    stdio:
+      command: npx
+      args:
+        - "-y"
+        - "@modelcontextprotocol/server-filesystem"
+        - "${PROJECT_ROOT}"
+      env: {}
+    sse:
+      url: ""
+      headers: {}
+  tool_filter: []

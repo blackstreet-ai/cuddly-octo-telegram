@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.venv/
+venv/
+.venv-*/
+.venv*/
+.envrc
+*.pytest_cache/
+.mypy_cache/
+
+# macOS
+.DS_Store
+
+# Ensure venvs ignored
+.venv/
+.venv-*/
+.venv*/
+venv/
