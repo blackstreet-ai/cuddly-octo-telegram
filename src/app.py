@@ -19,11 +19,11 @@ from src.orchestration.coordinator import build_coordinator
 from src.tools.mcp import build_mcp_toolset_from_config, close_mcp_toolset_if_any
 from src.tools.demo_tools import math_eval, summarize, keyword_extract
 
-
+# Get project root
 def project_root() -> str:
     return os.path.dirname(os.path.abspath(__file__ + "/.."))
 
-
+# Load config from YAML file with ${PROJECT_ROOT} placeholder expansion
 def load_config(path: str) -> dict:
     # Load environment variables from .env if present
     load_dotenv()
@@ -41,7 +41,7 @@ def load_config(path: str) -> dict:
         return value
     return expand(data)
 
-
+# Build system from config
 async def build_system(cfg: dict) -> Tuple[LlmAgent, Optional[object]]:
     # Build optional MCP toolset from config (disabled by default)
     mcp_toolset = await build_mcp_toolset_from_config(cfg.get("mcp", {}))
@@ -55,7 +55,7 @@ async def build_system(cfg: dict) -> Tuple[LlmAgent, Optional[object]]:
     # Wrap in Runner services
     return coordinator, mcp_toolset
 
-
+# Run single-shot task
 async def run_single_shot(cfg: dict, task: str) -> None:
     coordinator, mcp_toolset = await build_system(cfg)
 
@@ -88,7 +88,7 @@ async def run_single_shot(cfg: dict, task: str) -> None:
     finally:
         await close_mcp_toolset_if_any(mcp_toolset)
 
-
+# Run interactive chat loop
 async def run_interactive(cfg: dict) -> None:
     coordinator, mcp_toolset = await build_system(cfg)
 
@@ -124,7 +124,7 @@ async def run_interactive(cfg: dict) -> None:
     finally:
         await close_mcp_toolset_if_any(mcp_toolset)
 
-
+# Main entry point
 def main() -> None:
     parser = argparse.ArgumentParser(description="ADK Multi-Agent Scaffold")
     parser.add_argument("--config", default="config/runconfig.yaml", help="Path to YAML run config")
@@ -148,6 +148,6 @@ def main() -> None:
     except KeyboardInterrupt:
         print("\nInterrupted.")
 
-
+# Run app
 if __name__ == "__main__":
     main()

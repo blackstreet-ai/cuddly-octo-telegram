@@ -5,15 +5,17 @@ from google.adk.agents import LlmAgent
 from src.agents.greeter import build_greeter
 from src.agents.executor import build_executor
 
-
+# Build coordinator from config
 def build_coordinator(agents_cfg: dict, extra_tools: Optional[List[object]] = None) -> LlmAgent:
     """
     Compose a simple coordinator with two sub-agents: greeter and executor.
     extra_tools (e.g., MCPToolset) are attached to the executor so it can call them.
     """
+    # Build greeter and executor
     greeter = build_greeter(agents_cfg.get("greeter", {}))
     executor = build_executor(agents_cfg.get("executor", {}), extra_tools=extra_tools or [])
 
+    # Build coordinator with greeter and executor
     coordinator_cfg = agents_cfg.get("coordinator", {})
 
     coordinator = LlmAgent(
