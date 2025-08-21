@@ -33,7 +33,16 @@ def load_config(path: str) -> dict:
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     def expand(value):
         if isinstance(value, str):
-            return value.replace("${PROJECT_ROOT}", root)
+            # Expand ${PROJECT_ROOT}
+            expanded = value.replace("${PROJECT_ROOT}", root)
+            # Expand ${ENV:VAR_NAME}
+            if "${ENV:" in expanded:
+                import re
+                def repl(match):
+                    var = match.group(1)
+                    return os.environ.get(var, "")
+                expanded = re.sub(r"\$\{ENV:([A-Z0-9_]+)\}", repl, expanded)
+            return expanded
         if isinstance(value, list):
             return [expand(v) for v in value]
         if isinstance(value, dict):
@@ -46,11 +55,16 @@ async def build_system(cfg: dict) -> Tuple[LlmAgent, Optional[object]]:
     # Build optional MCP toolset from config (disabled by default)
     mcp_toolset = await build_mcp_toolset_from_config(cfg.get("mcp", {}))
 
-    # Build coordinator (which wires greeter/executor, and passes toolsets if any)
-    tool_list = [math_eval, summarize, keyword_extract]
-    if mcp_toolset:
-        tool_list.append(mcp_toolset)
-    coordinator = build_coordinator(cfg.get("agents", {}), extra_tools=tool_list)
+    # Build coordinator
+    # - shared_tools go to all sub-agents
+    # - topic_tools (e.g., Notion MCP) go ONLY to topic_clarifier
+    shared_tools = [math_eval, summarize, keyword_extract]
+    topic_tools = [mcp_toolset] if mcp_toolset else []
+    coordinator = build_coordinator(
+        cfg.get("agents", {}),
+        shared_tools=shared_tools,
+        topic_tools=topic_tools,
+    )
 
     # Wrap in Runner services
     return coordinator, mcp_toolset

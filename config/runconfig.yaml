@@ -1,27 +1,63 @@
-app_name: adk-multi-agent-scaffold
+app_name: bsj-script-writer
 
 agents:
   coordinator:
     model: gemini-2.5-flash
     name: coordinator
-    description: Coordinates greeting and task execution.
+    description: Orchestrates a strict, end-to-end pipeline from topic intake through research, outlining, drafting, polishing, and social slicing.
     instruction: |
-      You are a coordinator. If the user needs greeting/clarification, delegate to greeter.
-      If the task is clear, delegate to executor. Use sub_agents appropriately.
-  greeter:
+      Execute sub-tasks in fixed order: topic_clarifier → research_summarizer → outline_organizer → draft_generator → narration_polisher → social_segmenter. Maintain shared state across steps (topic, angle, source digests, outline, drafts, finalized script, 60-sec segments). Halt with an error if any step returns an empty or low confidence result; request a retry or clarification with a short summary of what's missing.
+  topic_clarifier:
     model: gemini-2.5-flash
-    name: greeter
-    description: Greets the user and clarifies intent.
+    name: topic_clarifier
+    description: Captures the topic and the narrative angle; constrains scope and confirms target audience and desired stance.
     instruction: |
-      Greet the user. Ask brief questions to clarify their goal and constraints.
-      Summarize their intent succinctly.
-  executor:
+      Do not prompt the user. Use the Notion MCP tools to read from database_id "2554cc35-4636-8145-aba9-c56e5b103977".
+      Selection rule: choose the most recent row with status = Active; if none, choose the most recently updated row.
+      Extract and normalize these fields: topic, angle, time_window, stance, must_hits, red_lines, audience.
+      Important: Do not call Notion `search` at all.
+      Only use database-id based retrieval tools against database_id "2554cc35-4636-8145-aba9-c56e5b103977". If you cannot access by database_id, halt with an error labeled "notion_db_unavailable" and include a one-sentence reason.
+      If a field is missing, infer a reasonable default from available context and proceed.
+      Return only a compact JSON blob: {topic, angle, time_window, stance, must_hits, red_lines, audience}.
+  research_summarizer:
     model: gemini-2.5-flash
-    name: executor
-    description: Executes tasks and uses tools to get results.
+    name: research_summarizer
+    description: Finds recent, credible, diverse sources; distills key facts, stats, quotes, and tensions.
     instruction: |
-      Execute the user's task. Use available tools when helpful.
-      Provide a concise, accurate final answer.
+      Use search to gather 3-7 high-quality sources (mix mainstream reporting, policy orgs/think tanks, government datasets, and credible local/Black media where relevant). Extract: claim, supporting evidence, date, author/outlet, link, perspective. Flag disagreements and uncertainties. Produce a bulleted digest + citation list.
+      Output a compact JSON blob: {digest, citations}.
+  outline_organizer:
+    model: gemini-2.5-flash
+    name: outline_organizer
+    description: Turns the research digest into a commentary outline using your template and voice.
+    instruction: |
+      Build a 6‑part outline:
+      1.	Hook (provocative, culturally literate)
+      2.	Background/Context (what’s at stake, who it hits)
+      3.	Core Argument (your thesis—no hedging when evidence warrants)
+      4.	Evidence (concise, sourced receipts)
+      5.	Counterpoints/Nuance (steelman + rebuttal)
+      6.	Closer / Call to Action (memorable, quotable button)
+      Keep it bold, serious, culturally aware; avoid robotic or anchor tone.
+      Output a compact JSON blob: {outline}.
+  draft_generator:
+    model: gemini-2.5-flash
+    name: draft_generator
+    description: Expands the outline into a full script in your tone—bold, serious, culturally fluent, occasionally sardonic.
+    instruction: |
+      Write 900–1400 words unless the user specifies otherwise. Use rhythm and imagery; avoid academic filler and faux neutrality. Integrate citations naturally (“According to… in May 2025…”). Preserve systemic critique where warranted; do not sanitize.
+  narration_polisher:
+    model: gemini-2.5-flash
+    name: narration_polisher
+    description: Refines the draft for performance—cadence, emphasis, breath, timing.
+    instruction: |
+      Convert to speakable prose: vary sentence length, insert pacing cues [pause], emphasis markers, and rhetorical pivots. Trim tongue-twisters, keep punchlines tight, and surface 3-5 intentional emphasis lines for standout delivery.
+  social_segmenter:
+    model: gemini-2.5-flash
+    name: social_segmenter
+    description: Splits the polished script into ~60-second segments with sharp hooks for Shorts/Reels/TikTok.
+    instruction: |
+      Identify 4-8 self-contained beats. For each: craft a hook (≤12 words), 45-55 seconds of body copy, and a punchy sign-off or cliffhanger. Return {title, hook, est_duration, segment_text, on-screen cue suggestions}.
 
 mcp:
   enabled: false
@@ -31,8 +67,8 @@ mcp:
       command: npx
       args:
         - "-y"
-        - "@modelcontextprotocol/server-filesystem"
-        - "${PROJECT_ROOT}"
+        - "mcp-remote"
+        - "https://mcp.notion.com/mcp"
       env: {}
     sse:
       url: ""
