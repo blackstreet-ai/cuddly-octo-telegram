@@ -148,7 +148,7 @@ def main() -> None:
     parser.add_argument(
         "--auto-continue",
         action="store_true",
-        help="Automatically continue through all pipeline stages without asking",
+        help="Automatically continue through all pipeline stages without asking (overridden by pipeline.auto_continue in config)",
     )
 
     args = parser.parse_args()
@@ -156,9 +156,13 @@ def main() -> None:
 
     cfg = load_config(args.config)
 
+    # Determine auto-continue from config (preferred) or CLI fallback
+    cfg_auto = bool(cfg.get("pipeline", {}).get("auto_continue", False))
+    auto_continue = cfg_auto or args.auto_continue
+
     # If auto-continue is requested, inject a directive into the coordinator to run
     # the full pipeline without pausing for confirmations between stages.
-    if args.auto_continue:
+    if auto_continue:
         try:
             coord = cfg.setdefault("agents", {}).setdefault("coordinator", {})
             instr = coord.get("instruction", "") or ""

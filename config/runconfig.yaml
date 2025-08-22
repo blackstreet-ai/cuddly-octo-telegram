@@ -11,6 +11,11 @@ output:
   output_dir: "./pipeline_outputs"
   formats: ["json", "markdown"]
 
+# Pipeline behavior
+pipeline:
+  # When true, run all stages without asking between steps
+  auto_continue: false
+
 agents:
   coordinator:
     model: gemini-2.5-pro
@@ -49,7 +54,7 @@ agents:
     name: outline_organizer
     description: Turns the research digest into a commentary outline using your template and voice.
     instruction: |
-      Build a 6‑part outline:
+      Build a 6-part outline:
       1.	Hook (provocative, culturally literate)
       2.	Background/Context (what's at stake, who it hits)
       3.	Core Argument (your thesis—no hedging when evidence warrants)
