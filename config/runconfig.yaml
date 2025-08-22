@@ -1,5 +1,21 @@
 app_name: bsj-script-writer
 
+# Enable verbose logging to see step outputs
+logging:
+  level: DEBUG
+  show_intermediate_outputs: true
+
+# Save intermediate outputs to files
+output:
+  save_intermediate_steps: true
+  output_dir: "./pipeline_outputs"
+  formats: ["json", "markdown"]
+
+# Pipeline behavior
+pipeline:
+  # When true, run all stages without asking between steps
+  auto_continue: false
+
 agents:
   coordinator:
     model: gemini-2.5-pro
@@ -13,6 +29,11 @@ agents:
       3. DRAFT: Write 900-1400 words in bold, serious, culturally fluent tone
       4. POLISH: Refine for performance with pacing cues and emphasis markers
       5. SEGMENT: Split into 4-8 social media segments (~60 seconds each)
+      
+      INTERACTIVE MODE: After each step, show the output and ask if the user wants to:
+      - Continue to next step
+      - Revise current step
+      - Stop pipeline
       
       Extract topic parameters from user input or use defaults:
       - topic: Main subject matter
@@ -33,7 +54,7 @@ agents:
     name: outline_organizer
     description: Turns the research digest into a commentary outline using your template and voice.
     instruction: |
-      Build a 6‑part outline:
+      Build a 6-part outline:
       1.	Hook (provocative, culturally literate)
       2.	Background/Context (what's at stake, who it hits)
       3.	Core Argument (your thesis—no hedging when evidence warrants)
