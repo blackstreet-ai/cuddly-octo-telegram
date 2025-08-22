@@ -145,11 +145,33 @@ def main() -> None:
     parser.add_argument("--task", default=None, help="Single-shot task text")
     parser.add_argument("--interactive", action="store_true", help="Run interactive chat loop")
     parser.add_argument("--log-level", default="INFO", help="Logging level")
+    parser.add_argument(
+        "--auto-continue",
+        action="store_true",
+        help="Automatically continue through all pipeline stages without asking",
+    )
 
     args = parser.parse_args()
     logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO), format="%(levelname)s %(message)s")
 
     cfg = load_config(args.config)
+
+    # If auto-continue is requested, inject a directive into the coordinator to run
+    # the full pipeline without pausing for confirmations between stages.
+    if args.auto_continue:
+        try:
+            coord = cfg.setdefault("agents", {}).setdefault("coordinator", {})
+            instr = coord.get("instruction", "") or ""
+            instr += (
+                "\n\nAUTO-CONTINUE MODE: Do not ask the user to continue between stages. "
+                "Proceed sequentially through RESEARCH → OUTLINE → DRAFT → POLISH → SEGMENT, "
+                "briefly labeling each stage in the output. At the end, present a concise summary "
+                "and the final deliverables."
+            )
+            coord["instruction"] = instr
+        except Exception:
+            # Be resilient if config shape is unexpected; continue without injection
+            pass
 
     try:
         if args.interactive:
