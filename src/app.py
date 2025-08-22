@@ -1,8 +1,10 @@
 import argparse
 import asyncio
+import json
 import logging
 import os
 import sys
+from pathlib import Path
 from typing import Optional, Tuple
 
 import yaml
@@ -70,6 +72,34 @@ async def build_system(cfg: dict) -> Tuple[LlmAgent, Optional[object]]:
     return coordinator, mcp_toolset
 
 # Run single-shot task
+def _extract_text_from_event(event) -> str:
+    try:
+        parts = getattr(event.content, "parts", []) or []
+        texts = [getattr(p, "text", "") for p in parts if hasattr(p, "text")]
+        return "\n".join([t for t in texts if t])
+    except Exception:
+        return ""
+
+
+def _maybe_prepare_output(cfg: dict) -> tuple[bool, Path, list[str]]:
+    out_cfg = (cfg or {}).get("output", {})
+    enabled = bool(out_cfg.get("save_intermediate_steps", False))
+    out_dir = Path(out_cfg.get("output_dir", "./pipeline_outputs")).resolve()
+    fmts = out_cfg.get("formats", ["json"]) or ["json"]
+    if enabled:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    return enabled, out_dir, fmts
+
+
+def _write_outputs(basepath: Path, text: str, raw_obj: dict, formats: list[str]) -> None:
+    if "markdown" in formats:
+        basepath.with_suffix(".md").write_text(text or "", encoding="utf-8")
+    if "json" in formats:
+        basepath.with_suffix(".json").write_text(
+            json.dumps(raw_obj, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
+
 async def run_single_shot(cfg: dict, task: str) -> None:
     coordinator, mcp_toolset = await build_system(cfg)
 
@@ -88,17 +118,41 @@ async def run_single_shot(cfg: dict, task: str) -> None:
     from google.genai import types
     content = types.Content(role='user', parts=[types.Part(text=task)])
 
+    # Prepare output paths if configured
+    save_enabled, out_dir, fmts = _maybe_prepare_output(cfg)
+    event_idx = 0
+
     try:
         async for event in runner.run_async(session_id=session.id, user_id=session.user_id, new_message=content):
             # Log events at debug level
             logging.debug("EVENT: %s", event)
+            # Optionally persist every event as an intermediate artifact
+            if save_enabled:
+                text = _extract_text_from_event(event)
+                payload = {
+                    "event": getattr(event, "__class__", type(event)).__name__,
+                    "author": getattr(event, "author", None),
+                    "is_final": getattr(event, "is_final_response", lambda: False)(),
+                    "raw": getattr(event, "__dict__", {})
+                }
+                base = out_dir / f"{event_idx:02d}_event"
+                _write_outputs(base, text, payload, fmts)
+                event_idx += 1
             # Print final response to stdout
             if event.is_final_response():
-                parts = getattr(event.content, "parts", []) or []
-                # Concatenate any text parts for display
-                texts = [getattr(p, "text", "") for p in parts if hasattr(p, "text")]
-                if texts:
-                    print("\n=== Final Answer ===\n" + "\n".join(texts))
+                final_text = _extract_text_from_event(event)
+                if final_text:
+                    print("\n=== Final Answer ===\n" + final_text)
+                # Persist final as a dedicated artifact
+                if save_enabled:
+                    payload = {
+                        "event": getattr(event, "__class__", type(event)).__name__,
+                        "author": getattr(event, "author", None),
+                        "is_final": True,
+                        "raw": getattr(event, "__dict__", {})
+                    }
+                    base = out_dir / "final_output"
+                    _write_outputs(base, final_text, payload, fmts)
     finally:
         await close_mcp_toolset_if_any(mcp_toolset)
 
@@ -118,6 +172,10 @@ async def run_interactive(cfg: dict) -> None:
 
     session = await session_service.create_session(state={}, app_name=runner.app_name, user_id="user")
 
+    # Prepare output paths if configured
+    save_enabled, out_dir, fmts = _maybe_prepare_output(cfg)
+    session_turn = 0
+
     print("Interactive mode. Type 'exit' to quit.")
     try:
         while True:
@@ -130,11 +188,32 @@ async def run_interactive(cfg: dict) -> None:
             content = types.Content(role='user', parts=[types.Part(text=prompt)])
             async for event in runner.run_async(session_id=session.id, user_id=session.user_id, new_message=content):
                 logging.debug("EVENT: %s", event)
+                # Persist per-turn events
+                if save_enabled:
+                    text = _extract_text_from_event(event)
+                    payload = {
+                        "event": getattr(event, "__class__", type(event)).__name__,
+                        "author": getattr(event, "author", None),
+                        "is_final": getattr(event, "is_final_response", lambda: False)(),
+                        "raw": getattr(event, "__dict__", {})
+                    }
+                    # Turn-scoped numbering
+                    base = out_dir / f"turn_{session_turn:03d}_event"
+                    _write_outputs(base, text, payload, fmts)
                 if event.is_final_response():
-                    parts = getattr(event.content, "parts", []) or []
-                    texts = [getattr(p, "text", "") for p in parts if hasattr(p, "text")]
-                    if texts:
-                        print("Agent>", "\n".join(texts))
+                    final_text = _extract_text_from_event(event)
+                    if final_text:
+                        print("Agent>", final_text)
+                    if save_enabled:
+                        payload = {
+                            "event": getattr(event, "__class__", type(event)).__name__,
+                            "author": getattr(event, "author", None),
+                            "is_final": True,
+                            "raw": getattr(event, "__dict__", {})
+                        }
+                        base = out_dir / f"turn_{session_turn:03d}_final"
+                        _write_outputs(base, final_text, payload, fmts)
+                    session_turn += 1
     finally:
         await close_mcp_toolset_if_any(mcp_toolset)
 
