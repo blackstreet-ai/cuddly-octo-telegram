@@ -21,3 +21,5 @@ venv/
 .venv*/
 venv/
 .windsurf/
+.vsix
+vsix*

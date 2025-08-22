@@ -19,11 +19,11 @@ from src.orchestration.coordinator import build_coordinator
 from src.tools.mcp import build_mcp_toolset_from_config, close_mcp_toolset_if_any
 from src.tools.demo_tools import math_eval, summarize, keyword_extract
 
-
+# Get project root
 def project_root() -> str:
     return os.path.dirname(os.path.abspath(__file__ + "/.."))
 
-
+# Load config from YAML file with ${PROJECT_ROOT} placeholder expansion
 def load_config(path: str) -> dict:
     # Load environment variables from .env if present
     load_dotenv()
@@ -33,7 +33,16 @@ def load_config(path: str) -> dict:
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     def expand(value):
         if isinstance(value, str):
-            return value.replace("${PROJECT_ROOT}", root)
+            # Expand ${PROJECT_ROOT}
+            expanded = value.replace("${PROJECT_ROOT}", root)
+            # Expand ${ENV:VAR_NAME}
+            if "${ENV:" in expanded:
+                import re
+                def repl(match):
+                    var = match.group(1)
+                    return os.environ.get(var, "")
+                expanded = re.sub(r"\$\{ENV:([A-Z0-9_]+)\}", repl, expanded)
+            return expanded
         if isinstance(value, list):
             return [expand(v) for v in value]
         if isinstance(value, dict):
@@ -41,21 +50,26 @@ def load_config(path: str) -> dict:
         return value
     return expand(data)
 
-
+# Build system from config
 async def build_system(cfg: dict) -> Tuple[LlmAgent, Optional[object]]:
     # Build optional MCP toolset from config (disabled by default)
     mcp_toolset = await build_mcp_toolset_from_config(cfg.get("mcp", {}))
 
-    # Build coordinator (which wires greeter/executor, and passes toolsets if any)
-    tool_list = [math_eval, summarize, keyword_extract]
-    if mcp_toolset:
-        tool_list.append(mcp_toolset)
-    coordinator = build_coordinator(cfg.get("agents", {}), extra_tools=tool_list)
+    # Build coordinator
+    # - shared_tools go to all sub-agents
+    # - topic_tools (e.g., Notion MCP) go ONLY to topic_clarifier
+    shared_tools = [math_eval, summarize, keyword_extract]
+    topic_tools = [mcp_toolset] if mcp_toolset else []
+    coordinator = build_coordinator(
+        cfg.get("agents", {}),
+        shared_tools=shared_tools,
+        topic_tools=topic_tools,
+    )
 
     # Wrap in Runner services
     return coordinator, mcp_toolset
 
-
+# Run single-shot task
 async def run_single_shot(cfg: dict, task: str) -> None:
     coordinator, mcp_toolset = await build_system(cfg)
 
@@ -88,7 +102,7 @@ async def run_single_shot(cfg: dict, task: str) -> None:
     finally:
         await close_mcp_toolset_if_any(mcp_toolset)
 
-
+# Run interactive chat loop
 async def run_interactive(cfg: dict) -> None:
     coordinator, mcp_toolset = await build_system(cfg)
 
@@ -124,7 +138,7 @@ async def run_interactive(cfg: dict) -> None:
     finally:
         await close_mcp_toolset_if_any(mcp_toolset)
 
-
+# Main entry point
 def main() -> None:
     parser = argparse.ArgumentParser(description="ADK Multi-Agent Scaffold")
     parser.add_argument("--config", default="config/runconfig.yaml", help="Path to YAML run config")
@@ -148,6 +162,6 @@ def main() -> None:
     except KeyboardInterrupt:
         print("\nInterrupted.")
 
-
+# Run app
 if __name__ == "__main__":
     main()

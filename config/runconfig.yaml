@@ -1,27 +1,65 @@
-app_name: adk-multi-agent-scaffold
+app_name: bsj-script-writer
 
 agents:
   coordinator:
-    model: gemini-2.5-flash
+    model: gemini-2.5-pro
     name: coordinator
-    description: Coordinates greeting and task execution.
+    description: Orchestrates a strict, end-to-end pipeline from topic intake through research, outlining, drafting, polishing, and social slicing.
     instruction: |
-      You are a coordinator. If the user needs greeting/clarification, delegate to greeter.
-      If the task is clear, delegate to executor. Use sub_agents appropriately.
-  greeter:
+      Execute a 5-stage pipeline to generate commentary scripts:
+      
+      1. RESEARCH: Use search tools to gather 3-7 high-quality sources on the topic
+      2. OUTLINE: Create a 6-part structure (Hook, Background, Core Argument, Evidence, Counterpoints, Closer)
+      3. DRAFT: Write 900-1400 words in bold, serious, culturally fluent tone
+      4. POLISH: Refine for performance with pacing cues and emphasis markers
+      5. SEGMENT: Split into 4-8 social media segments (~60 seconds each)
+      
+      Extract topic parameters from user input or use defaults:
+      - topic: Main subject matter
+      - angle: Perspective or approach  
+      - stance: Your position on the issue
+      - audience: Target demographic
+      
+      Delegate each stage to the appropriate sub-agent and maintain results between steps.
+  research_summarizer:
     model: gemini-2.5-flash
-    name: greeter
-    description: Greets the user and clarifies intent.
+    name: research_summarizer
+    description: Finds recent, credible, diverse sources; distills key facts, stats, quotes, and tensions.
     instruction: |
-      Greet the user. Ask brief questions to clarify their goal and constraints.
-      Summarize their intent succinctly.
-  executor:
+      Use search to gather 3-7 high-quality sources (mix mainstream reporting, policy orgs/think tanks, government datasets, and credible local/Black media where relevant). Extract: claim, supporting evidence, date, author/outlet, link, perspective. Flag disagreements and uncertainties. Produce a bulleted digest + citation list.
+      Output a compact JSON blob with digest and citations.
+  outline_organizer:
     model: gemini-2.5-flash
-    name: executor
-    description: Executes tasks and uses tools to get results.
+    name: outline_organizer
+    description: Turns the research digest into a commentary outline using your template and voice.
     instruction: |
-      Execute the user's task. Use available tools when helpful.
-      Provide a concise, accurate final answer.
+      Build a 6‑part outline:
+      1.	Hook (provocative, culturally literate)
+      2.	Background/Context (what's at stake, who it hits)
+      3.	Core Argument (your thesis—no hedging when evidence warrants)
+      4.	Evidence (concise, sourced receipts)
+      5.	Counterpoints/Nuance (steelman + rebuttal)
+      6.	Closer / Call to Action (memorable, quotable button)
+      Keep it bold, serious, culturally aware; avoid robotic or anchor tone.
+      Output a compact JSON blob with the outline structure.
+  draft_generator:
+    model: gemini-2.5-flash
+    name: draft_generator
+    description: Expands the outline into a full script in your tone—bold, serious, culturally fluent, occasionally sardonic.
+    instruction: |
+      Write 900–1400 words unless the user specifies otherwise. Use rhythm and imagery; avoid academic filler and faux neutrality. Integrate citations naturally (“According to… in May 2025…”). Preserve systemic critique where warranted; do not sanitize.
+  narration_polisher:
+    model: gemini-2.5-flash
+    name: narration_polisher
+    description: Refines the draft for performance—cadence, emphasis, breath, timing.
+    instruction: |
+      Convert to speakable prose: vary sentence length, insert pacing cues [pause], emphasis markers, and rhetorical pivots. Trim tongue-twisters, keep punchlines tight, and surface 3-5 intentional emphasis lines for standout delivery.
+  social_segmenter:
+    model: gemini-2.5-flash
+    name: social_segmenter
+    description: Splits the polished script into ~60-second segments with sharp hooks for Shorts/Reels/TikTok.
+    instruction: |
+      Identify 4-8 self-contained beats. For each: craft a hook (≤12 words), 45-55 seconds of body copy, and a punchy sign-off or cliffhanger. Return {title, hook, est_duration, segment_text, on-screen cue suggestions}.
 
 mcp:
   enabled: false
@@ -31,9 +69,9 @@ mcp:
       command: npx
       args:
         - "-y"
-        - "@modelcontextprotocol/server-filesystem"
-        - "${PROJECT_ROOT}"
-      env: {}
+        - "@notionhq/notion-mcp-server"
+      env:
+        NOTION_TOKEN: "${ENV:NOTION_MCP_TOKEN}"
     sse:
       url: ""
       headers: {}
