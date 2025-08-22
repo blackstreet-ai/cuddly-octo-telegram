@@ -50,8 +50,7 @@ agents:
       - After OUTLINE, invoke DRAFT with the outline and citations.
       - After DRAFT, invoke POLISH with the draft.
       - After POLISH, invoke SEGMENT with the polished script.
-      - Only after SEGMENT, produce the final response summarizing results and including deliverables.
-      
+      - Only after SEGMENT, produce the final response summarizing results and including deliverables.     
   research_summarizer:
     model: gemini-2.5-flash
     name: research_summarizer
@@ -105,5 +104,3 @@ mcp:
     sse:
       url: "https://mcp.firecrawl.dev/${ENV:FIRECRAWL_API_KEY}/sse"
       headers: {}
-  tool_filter:
-    - "firecrawl_search"
