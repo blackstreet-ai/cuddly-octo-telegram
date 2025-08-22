@@ -42,13 +42,22 @@ agents:
       - audience: Target demographic
       
       Delegate each stage to the appropriate sub-agent and maintain results between steps.
+      
+      PIPELINE CONTRACT:
+      - Do not emit a final response until SEGMENT is complete.
+      - Treat RESEARCH, OUTLINE, DRAFT, and POLISH outputs as intermediate artifacts only.
+      - After RESEARCH, invoke OUTLINE with the research digest and citations.
+      - After OUTLINE, invoke DRAFT with the outline and citations.
+      - After DRAFT, invoke POLISH with the draft.
+      - After POLISH, invoke SEGMENT with the polished script.
+      - Only after SEGMENT, produce the final response summarizing results and including deliverables.
+      
   research_summarizer:
     model: gemini-2.5-flash
     name: research_summarizer
     description: Finds recent, credible, diverse sources; distills key facts, stats, quotes, and tensions.
     instruction: |
       Use search to gather 3-7 high-quality sources (mix mainstream reporting, policy orgs/think tanks, government datasets, and credible local/Black media where relevant). Extract: claim, supporting evidence, date, author/outlet, link, perspective. Flag disagreements and uncertainties. Produce a bulleted digest + citation list.
-      Output a compact JSON blob with digest and citations.
   outline_organizer:
     model: gemini-2.5-flash
     name: outline_organizer
