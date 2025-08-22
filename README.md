@@ -50,6 +50,13 @@ python -m src.app --task "Generate a script about AI regulation using these para
 python -m src.app --interactive --log-level INFO
 ```
 
+**Auto-continue (no prompts between stages):**
+```bash
+# CLI flag (overridden by YAML if set)
+python -m src.app --task "Generate a commentary script on climate policy" --auto-continue --log-level INFO
+```
+You can also set `pipeline.auto_continue: true` in `config/runconfig.yaml` (config takes precedence over CLI).
+
 **General topic (system extracts parameters):**
 ```bash
 python -m src.app --task "Generate a commentary script on climate policy" --log-level INFO
@@ -65,6 +72,17 @@ The system executes a 5-stage pipeline:
 4. **Polish** - Refines for performance with pacing cues and emphasis markers
 5. **Segment** - Splits into 4-8 social media segments (~60 seconds each)
 
+### Outputs & Files
+
+- **Directory**: Files are saved under `./pipeline_outputs/` when enabled.
+- **Formats**: Controlled by `output.formats` in `config/runconfig.yaml` (supports `json`, `markdown`).
+- **Intermediate saves**: When `output.save_intermediate_steps: true`, each streamed event and each stage's final output are written to disk.
+- **Semantic filenames**: Filenames are prefixed by the stage:
+  - `01_research_*`, `02_outline_*`, `03_draft_*`, `04_polish_*`, `05_segment_*`
+  Examples: `01_research_event_00.md`, `03_draft_final.json`.
+
+Markdown files contain the extracted text. JSON files contain safe metadata (event type, author, is_final, text) for easier debugging.
+
 ## Configuration
 
 ### Agent Models
@@ -72,6 +90,28 @@ The system executes a 5-stage pipeline:
 The system uses different Gemini models for optimal performance:
 - **Coordinator**: `gemini-2.5-pro` (complex orchestration)
 - **Sub-agents**: `gemini-2.5-flash` (specialized tasks)
+
+### Run-time Controls (YAML)
+
+Set these in `config/runconfig.yaml`:
+
+```yaml
+logging:
+  level: DEBUG            # DEBUG | INFO | WARNING | ERROR
+  show_intermediate_outputs: false  # true to print each step to console
+
+output:
+  save_intermediate_steps: true     # save streamed outputs
+  output_dir: "./pipeline_outputs"   # where files are written
+  formats: ["json", "markdown"]     # file formats to emit
+
+pipeline:
+  auto_continue: true               # run all stages without prompts
+```
+
+Notes:
+- Config settings take precedence over CLI flags (e.g., `pipeline.auto_continue`).
+- To reduce console noise but keep files, set `show_intermediate_outputs: false` and keep `save_intermediate_steps: true`.
 
 ### Notion Integration (Optional)
 
@@ -112,6 +152,7 @@ pytest -q
 - **"API token is invalid"** — Check your Notion integration token and permissions
 - **"Context variable not found"** — Ensure pipeline stages don't reference undefined variables
 - **Virtual environment** — Always activate: `source .venv/bin/activate`
+- **"Tool or function not found (e.g., search)"** — Ensure required tools are registered/enabled in config. If you disabled MCP or external tools, the Research stage may fail. Re-enable the relevant tool integration or adjust the Research instruction to avoid external calls.
 
 ## Architecture
 
