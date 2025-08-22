@@ -58,10 +58,12 @@ async def build_system(cfg: dict) -> Tuple[LlmAgent, Optional[object]]:
     mcp_toolset = await build_mcp_toolset_from_config(cfg.get("mcp", {}))
 
     # Build coordinator
-    # - shared_tools go to all sub-agents
-    # - topic_tools (e.g., Notion MCP) go ONLY to topic_clarifier
+    # - shared_tools go to all sub-agents (attach MCP here so research_summarizer can use it)
+    # - topic_tools would be only for topic_clarifier if present (unused now)
     shared_tools = [math_eval, summarize, keyword_extract]
-    topic_tools = [mcp_toolset] if mcp_toolset else []
+    if mcp_toolset:
+        shared_tools.append(mcp_toolset)
+    topic_tools = []
     coordinator = build_coordinator(
         cfg.get("agents", {}),
         shared_tools=shared_tools,
@@ -95,9 +97,31 @@ def _write_outputs(basepath: Path, text: str, raw_obj: dict, formats: list[str])
     if "markdown" in formats:
         basepath.with_suffix(".md").write_text(text or "", encoding="utf-8")
     if "json" in formats:
-        basepath.with_suffix(".json").write_text(
-            json.dumps(raw_obj, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        json_path = basepath.with_suffix(".json")
+        try:
+            json_path.write_text(
+                json.dumps(raw_obj, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+        except TypeError:
+            # Fallback: stringify anything non-serializable
+            safe_obj = {k: (v if isinstance(v, (str, int, float, bool, type(None), list, dict)) else str(v)) for k, v in (raw_obj or {}).items()}
+            json_path.write_text(
+                json.dumps(safe_obj, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+
+
+def _stage_prefix(author: Optional[str]) -> str:
+    """Return a semantic prefix based on the agent author (pipeline stage)."""
+    mapping = {
+        "coordinator": ("00", "coordinator"),
+        "research_summarizer": ("01", "research"),
+        "outline_organizer": ("02", "outline"),
+        "draft_generator": ("03", "draft"),
+        "narration_polisher": ("04", "polish"),
+        "social_segmenter": ("05", "segment"),
+    }
+    idx, name = mapping.get((author or "").strip(), ("99", (author or "unknown")))
+    return f"{idx}_{name}"
 
 
 async def run_single_shot(cfg: dict, task: str) -> None:
@@ -129,13 +153,14 @@ async def run_single_shot(cfg: dict, task: str) -> None:
             # Optionally persist every event as an intermediate artifact
             if save_enabled:
                 text = _extract_text_from_event(event)
+                author = getattr(event, "author", None)
                 payload = {
                     "event": getattr(event, "__class__", type(event)).__name__,
-                    "author": getattr(event, "author", None),
+                    "author": author,
                     "is_final": getattr(event, "is_final_response", lambda: False)(),
-                    "raw": getattr(event, "__dict__", {})
+                    "text": text,
                 }
-                base = out_dir / f"{event_idx:02d}_event"
+                base = out_dir / f"{_stage_prefix(author)}_event_{event_idx:02d}"
                 _write_outputs(base, text, payload, fmts)
                 event_idx += 1
             # Print final response to stdout
@@ -145,13 +170,14 @@ async def run_single_shot(cfg: dict, task: str) -> None:
                     print("\n=== Final Answer ===\n" + final_text)
                 # Persist final as a dedicated artifact
                 if save_enabled:
+                    author = getattr(event, "author", None)
                     payload = {
                         "event": getattr(event, "__class__", type(event)).__name__,
-                        "author": getattr(event, "author", None),
+                        "author": author,
                         "is_final": True,
-                        "raw": getattr(event, "__dict__", {})
+                        "text": final_text,
                     }
-                    base = out_dir / "final_output"
+                    base = out_dir / f"{_stage_prefix(author)}_final"
                     _write_outputs(base, final_text, payload, fmts)
     finally:
         await close_mcp_toolset_if_any(mcp_toolset)
@@ -191,27 +217,29 @@ async def run_interactive(cfg: dict) -> None:
                 # Persist per-turn events
                 if save_enabled:
                     text = _extract_text_from_event(event)
+                    author = getattr(event, "author", None)
                     payload = {
                         "event": getattr(event, "__class__", type(event)).__name__,
-                        "author": getattr(event, "author", None),
+                        "author": author,
                         "is_final": getattr(event, "is_final_response", lambda: False)(),
-                        "raw": getattr(event, "__dict__", {})
+                        "text": text,
                     }
                     # Turn-scoped numbering
-                    base = out_dir / f"turn_{session_turn:03d}_event"
+                    base = out_dir / f"turn_{session_turn:03d}_{_stage_prefix(author)}_event"
                     _write_outputs(base, text, payload, fmts)
                 if event.is_final_response():
                     final_text = _extract_text_from_event(event)
                     if final_text:
                         print("Agent>", final_text)
                     if save_enabled:
+                        author = getattr(event, "author", None)
                         payload = {
                             "event": getattr(event, "__class__", type(event)).__name__,
-                            "author": getattr(event, "author", None),
+                            "author": author,
                             "is_final": True,
-                            "raw": getattr(event, "__dict__", {})
+                            "text": final_text,
                         }
-                        base = out_dir / f"turn_{session_turn:03d}_final"
+                        base = out_dir / f"turn_{session_turn:03d}_{_stage_prefix(author)}_final"
                         _write_outputs(base, final_text, payload, fmts)
                     session_turn += 1
     finally:

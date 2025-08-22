@@ -14,7 +14,7 @@ output:
 # Pipeline behavior
 pipeline:
   # When true, run all stages without asking between steps
-  auto_continue: false
+  auto_continue: true
 
 agents:
   coordinator:
@@ -83,17 +83,18 @@ agents:
       Identify 4-8 self-contained beats. For each: craft a hook (≤12 words), 45-55 seconds of body copy, and a punchy sign-off or cliffhanger. Return {title, hook, est_duration, segment_text, on-screen cue suggestions}.
 
 mcp:
-  enabled: false
+  enabled: true
   connection:
-    type: stdio
+    type: sse
     stdio:
       command: npx
       args:
         - "-y"
-        - "@notionhq/notion-mcp-server"
+        - "firecrawl-mcp"
       env:
-        NOTION_TOKEN: "${ENV:NOTION_MCP_TOKEN}"
+        FIRECRAWL_API_KEY: "${ENV:FIRECRAWL_API_KEY}"
     sse:
-      url: ""
+      url: "https://mcp.firecrawl.dev/${ENV:FIRECRAWL_API_KEY}/sse"
       headers: {}
-  tool_filter: []
+  tool_filter:
+    - "firecrawl_search"
