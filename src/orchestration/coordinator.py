@@ -114,6 +114,11 @@ def build_coordinator(
             )
         ]
 
+    # Attach topic_tools (Notion MCP) to the coordinator itself since topic_clarifier is removed
+    coordinator_tools: List[object] = []
+    if topic_tools:
+        coordinator_tools.extend(topic_tools)
+    
     coordinator = LlmAgent(
         model=coordinator_cfg.get("model", "gemini-2.0-flash"),
         name=coordinator_cfg.get("name", "coordinator"),
@@ -129,6 +134,7 @@ def build_coordinator(
                 "Use sub_agents appropriately."
             ),
         ),
+        tools=coordinator_tools,
         sub_agents=sub_agents,
     )
     return coordinator

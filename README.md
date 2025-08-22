@@ -1,15 +1,15 @@
-# ADK Multi‑Agent Scaffold
+# BSJ Script Writer
 
-A minimal scaffold for a multi‑agent system using Google's Agent Development Kit (ADK).
-MCP is optional and disabled by default.
+A specialized multi-agent system for generating commentary scripts using Google's Agent Development Kit (ADK). Built for creating 900-1400 word scripts optimized for social media segments with a bold, culturally aware voice.
 
 ## Features
 
-- **Coordinator + Greeter + Executor** (`src/orchestration/coordinator.py`, `src/agents/`)
-- **CLI app** with single‑shot and interactive modes (`src/app.py`)
-- **Demo tools wired**: `math_eval`, `summarize`, `keyword_extract` (`src/tools/demo_tools.py`)
-- **Optional MCP** helper with `${PROJECT_ROOT}` placeholder (`src/tools/mcp.py`)
-- **Config‑driven** via `config/runconfig.yaml`
+- **5-Stage Pipeline**: Research → Outline → Draft → Polish → Segment
+- **Multi-Agent Architecture**: Coordinator orchestrates specialized sub-agents
+- **Notion Integration**: Optional MCP connection for topic management
+- **CLI Interface**: Single-shot and interactive modes
+- **Configurable Models**: Uses Gemini 2.5 Pro/Flash for different stages
+- **Social Media Ready**: Outputs optimized for Shorts/Reels/TikTok
 
 ## Prerequisites
 
@@ -27,79 +27,101 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 
-# Configure API credentials (choose one)
-# Option A: Google AI Studio API key
-echo "GOOGLE_API_KEY=YOUR_API_KEY" >> .env
+# Configure API credentials
+cp .env.sample .env
+# Edit .env and add your Google AI Studio API key:
+# GOOGLE_API_KEY=your_api_key_here
 
-# Option B: Vertex AI (ADC or service account)
-# export VERTEXAI_PROJECT=your-project-id
-# export VERTEXAI_LOCATION=us-central1
+# Optional: Configure Notion integration
+# NOTION_MCP_TOKEN=your_notion_integration_token
 ```
 
-## Quickstart
+## Usage
 
-- **Single‑shot**
+### Generate Commentary Scripts
 
-  ```bash
-  python -m src.app --task "Use the math tool to evaluate: (2 + 3) * 4."
-  ```
+**Single-shot with parameters:**
+```bash
+python -m src.app --task "Generate a script about AI regulation using these parameters: topic='AI Safety Regulation', angle='Critical analysis of recent policy changes', stance='Cautiously optimistic but highlighting gaps', audience='Tech-aware general public'" --log-level INFO
+```
 
-- **Interactive chat**
+**Interactive mode:**
+```bash
+python -m src.app --interactive --log-level INFO
+```
 
-  ```bash
-  python -m src.app --interactive
-  ```
+**General topic (system extracts parameters):**
+```bash
+python -m src.app --task "Generate a commentary script on climate policy" --log-level INFO
+```
 
-- **Custom config path**
+### Pipeline Stages
 
-  ```bash
-  python -m src.app --config config/runconfig.yaml --task "hello"
-  ```
+The system executes a 5-stage pipeline:
+
+1. **Research** - Gathers 3-7 high-quality sources
+2. **Outline** - Creates 6-part structure (Hook, Background, Core Argument, Evidence, Counterpoints, Closer)
+3. **Draft** - Writes 900-1400 words in bold, serious, culturally fluent tone
+4. **Polish** - Refines for performance with pacing cues and emphasis markers
+5. **Segment** - Splits into 4-8 social media segments (~60 seconds each)
 
 ## Configuration
 
-`config/runconfig.yaml` controls models and optional MCP. Example MCP block:
+### Agent Models
+
+The system uses different Gemini models for optimal performance:
+- **Coordinator**: `gemini-2.5-pro` (complex orchestration)
+- **Sub-agents**: `gemini-2.5-flash` (specialized tasks)
+
+### Notion Integration (Optional)
+
+To enable Notion topic management:
+
+1. Create a Notion integration at https://www.notion.so/profile/integrations
+2. Add the integration to your database page
+3. Set `NOTION_MCP_TOKEN` in your `.env` file
+4. Enable MCP in `config/runconfig.yaml`:
 
 ```yaml
 mcp:
-  enabled: false
+  enabled: true
   connection:
     type: stdio
     stdio:
       command: npx
-      args:
-        - "-y"
-        - "@modelcontextprotocol/server-filesystem"
-        - "${PROJECT_ROOT}"
-      env: {}
-  tool_filter: []
+      args: ["-y", "@notionhq/notion-mcp-server"]
+      env:
+        NOTION_TOKEN: "your_notion_token_here"
 ```
-
-- `${PROJECT_ROOT}` is expanded at runtime to the repo root.
-- To enable MCP set `enabled: true` and ensure Node + `npx` are installed.
 
 ## Testing
 
+Test Notion connection:
+```bash
+python test_notion.py
+```
+
+Run unit tests:
 ```bash
 pytest -q
 ```
 
 ## Troubleshooting
 
-- "Default value is not supported in function declaration schema" — benign warning from function tool schema generation.
-- Ensure you are running with the project venv’s Python 3.11 (e.g., `source .venv/bin/activate`).
+- **"Default value is not supported"** — Benign warning from function schema generation
+- **"API token is invalid"** — Check your Notion integration token and permissions
+- **"Context variable not found"** — Ensure pipeline stages don't reference undefined variables
+- **Virtual environment** — Always activate: `source .venv/bin/activate`
 
-## First push to GitHub
+## Architecture
 
-Below are the typical steps for an initial push (replace placeholders):
-
-```bash
-git init
-git add .
-git commit -m "chore: initial commit"
-git branch -M main
-git remote add origin git@github.com:<YOUR_GH_USER>/<YOUR_REPO>.git
-git push -u origin main
 ```
-
-This repo includes a `.gitignore`. We do not write to your `.env`; use `.env.sample` as reference.
+BSJ Script Writer
+├── Coordinator (gemini-2.5-pro)
+│   ├── Research Summarizer (gemini-2.5-flash)
+│   ├── Outline Organizer (gemini-2.5-flash)
+│   ├── Draft Generator (gemini-2.5-flash)
+│   ├── Narration Polisher (gemini-2.5-flash)
+│   └── Social Segmenter (gemini-2.5-flash)
+└── Optional: Notion MCP Integration
+```

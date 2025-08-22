@@ -2,30 +2,32 @@ app_name: bsj-script-writer
 
 agents:
   coordinator:
-    model: gemini-2.5-flash
+    model: gemini-2.5-pro
     name: coordinator
     description: Orchestrates a strict, end-to-end pipeline from topic intake through research, outlining, drafting, polishing, and social slicing.
     instruction: |
-      Execute sub-tasks in fixed order: topic_clarifier → research_summarizer → outline_organizer → draft_generator → narration_polisher → social_segmenter. Maintain shared state across steps (topic, angle, source digests, outline, drafts, finalized script, 60-sec segments). Halt with an error if any step returns an empty or low confidence result; request a retry or clarification with a short summary of what's missing.
-  topic_clarifier:
-    model: gemini-2.5-flash
-    name: topic_clarifier
-    description: Captures the topic and the narrative angle; constrains scope and confirms target audience and desired stance.
-    instruction: |
-      Do not prompt the user. Use the Notion MCP tools to read from database_id "2554cc35-4636-8145-aba9-c56e5b103977".
-      Selection rule: choose the most recent row with status = Active; if none, choose the most recently updated row.
-      Extract and normalize these fields: topic, angle, time_window, stance, must_hits, red_lines, audience.
-      Important: Do not call Notion `search` at all.
-      Only use database-id based retrieval tools against database_id "2554cc35-4636-8145-aba9-c56e5b103977". If you cannot access by database_id, halt with an error labeled "notion_db_unavailable" and include a one-sentence reason.
-      If a field is missing, infer a reasonable default from available context and proceed.
-      Return only a compact JSON blob: {topic, angle, time_window, stance, must_hits, red_lines, audience}.
+      Execute a 5-stage pipeline to generate commentary scripts:
+      
+      1. RESEARCH: Use search tools to gather 3-7 high-quality sources on the topic
+      2. OUTLINE: Create a 6-part structure (Hook, Background, Core Argument, Evidence, Counterpoints, Closer)
+      3. DRAFT: Write 900-1400 words in bold, serious, culturally fluent tone
+      4. POLISH: Refine for performance with pacing cues and emphasis markers
+      5. SEGMENT: Split into 4-8 social media segments (~60 seconds each)
+      
+      Extract topic parameters from user input or use defaults:
+      - topic: Main subject matter
+      - angle: Perspective or approach  
+      - stance: Your position on the issue
+      - audience: Target demographic
+      
+      Delegate each stage to the appropriate sub-agent and maintain results between steps.
   research_summarizer:
     model: gemini-2.5-flash
     name: research_summarizer
     description: Finds recent, credible, diverse sources; distills key facts, stats, quotes, and tensions.
     instruction: |
       Use search to gather 3-7 high-quality sources (mix mainstream reporting, policy orgs/think tanks, government datasets, and credible local/Black media where relevant). Extract: claim, supporting evidence, date, author/outlet, link, perspective. Flag disagreements and uncertainties. Produce a bulleted digest + citation list.
-      Output a compact JSON blob: {digest, citations}.
+      Output a compact JSON blob with digest and citations.
   outline_organizer:
     model: gemini-2.5-flash
     name: outline_organizer
@@ -33,13 +35,13 @@ agents:
     instruction: |
       Build a 6‑part outline:
       1.	Hook (provocative, culturally literate)
-      2.	Background/Context (what’s at stake, who it hits)
+      2.	Background/Context (what's at stake, who it hits)
       3.	Core Argument (your thesis—no hedging when evidence warrants)
       4.	Evidence (concise, sourced receipts)
       5.	Counterpoints/Nuance (steelman + rebuttal)
       6.	Closer / Call to Action (memorable, quotable button)
       Keep it bold, serious, culturally aware; avoid robotic or anchor tone.
-      Output a compact JSON blob: {outline}.
+      Output a compact JSON blob with the outline structure.
   draft_generator:
     model: gemini-2.5-flash
     name: draft_generator
@@ -67,9 +69,9 @@ mcp:
       command: npx
       args:
         - "-y"
-        - "mcp-remote"
-        - "https://mcp.notion.com/mcp"
-      env: {}
+        - "@notionhq/notion-mcp-server"
+      env:
+        NOTION_TOKEN: "${ENV:NOTION_MCP_TOKEN}"
     sse:
       url: ""
       headers: {}
