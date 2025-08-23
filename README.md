@@ -216,6 +216,7 @@ mcp:
 - `http_fetch(url: str)` → `{status, headers, text}`
 - `extract_text(html: str)` → `{text}`
 - `keyword_extract(text: str, top_k: int=10)` → `{keywords: [str]}`
+- `firecrawl_search(query: str, limit: int = 5, sources?: [web|news|images], scrape_formats?: [markdown|links|...], tbs?: str, location?: str, timeout_ms?: int)` → Firecrawl `/v2/search` response summary
 
 These are implemented in `src/tools/local_mcp_server.py` and reuse existing utilities where possible (e.g., `src/tools/demo_tools.py`).
 

@@ -13,8 +13,9 @@ configured with connection.type=stdio in config/runconfig.yaml.
 
 from __future__ import annotations
 
+import os
 import re
-from typing import Dict, List
+from typing import Any, Dict, List, Optional
 
 import httpx
 from mcp.server.fastmcp import FastMCP
@@ -64,6 +65,72 @@ def keyword_extract(text: str, top_k: int = 10) -> Dict[str, List[str]]:
     top_k = int(top_k or 10)
     kws = demo_keyword_extract(text or "", top_k=top_k)
     return {"keywords": kws}
+
+
+@app.tool()
+def firecrawl_search(
+    query: str,
+    limit: int = 5,
+    sources: Optional[List[str]] = None,
+    scrape_formats: Optional[List[str]] = None,
+    tbs: Optional[str] = None,
+    location: Optional[str] = None,
+    timeout_ms: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Search the web via Firecrawl and optionally scrape result content.
+
+    Args:
+        query: Search query string.
+        limit: Max number of results to return.
+        sources: Optional list of sources, e.g. ["web"], ["news"], ["images"].
+        scrape_formats: Optional list of formats to scrape, e.g. ["markdown", "links"].
+        tbs: Time-based search filter (e.g., "qdr:d" for past day).
+        location: Geographic location (e.g., "Germany").
+        timeout_ms: Timeout in milliseconds for the search.
+
+    Returns:
+        JSON-serializable dict including status, success, and data payload.
+    """
+    api_key = os.getenv("FIRECRAWL_API_KEY")
+    if not api_key:
+        return {"success": False, "error": "FIRECRAWL_API_KEY is not set in environment"}
+
+    payload: Dict[str, Any] = {
+        "query": query,
+        "limit": int(limit or 5),
+    }
+    if sources:
+        payload["sources"] = list(sources)
+    if tbs:
+        payload["tbs"] = tbs
+    if location:
+        payload["location"] = location
+    if timeout_ms is not None:
+        payload["timeout"] = int(timeout_ms)
+    if scrape_formats:
+        payload["scrapeOptions"] = {"formats": list(scrape_formats)}
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    with httpx.Client(timeout=30) as client:
+        resp = client.post(
+            "https://api.firecrawl.dev/v2/search",
+            headers=headers,
+            json=payload,
+        )
+        try:
+            body: Dict[str, Any] = resp.json()
+        except Exception:
+            body = {"raw": resp.text}
+
+    return {
+        "status": resp.status_code,
+        "success": bool(body.get("success", resp.status_code == 200)),
+        "data": body.get("data", body),
+    }
 
 
 if __name__ == "__main__":
