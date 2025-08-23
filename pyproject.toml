@@ -1,0 +1,19 @@
+[project]
+name = "bsj-script-writer"
+version = "0.1.0"
+description = "A specialized multi-agent system for generating commentary scripts using Google's Agent Development Kit (ADK)."
+readme = "README.md"
+requires-python = ">=3.11"
+
+# Runtime dependencies
+dependencies = [
+    "google-adk",
+    "PyYAML>=6.0",
+    "python-dotenv>=1.0.0",
+]
+
+[tool.uv]
+# Development-only dependencies
+dev-dependencies = [
+    "pytest>=8.0.0",
+]
