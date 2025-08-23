@@ -15,6 +15,7 @@ A specialized multi-agent system for generating commentary scripts using Google'
 
 - Python 3.11+
 - A Google AI Studio API key (or Vertex AI credentials)
+- Optional: Firecrawl API key (for web search/scrape via MCP)
 
 ## Setup
 
@@ -34,6 +35,9 @@ cp .env.sample .env
 
 # Optional: Configure Notion integration
 # NOTION_MCP_TOKEN=your_notion_integration_token
+
+# Optional: Configure Firecrawl (web search/scrape)
+# FIRECRAWL_API_KEY=fc-xxxxxxx
 ```
 
 ## Usage
@@ -71,6 +75,8 @@ The system executes a 5-stage pipeline:
 3. **Draft** - Writes 900-1400 words in bold, serious, culturally fluent tone
 4. **Polish** - Refines for performance with pacing cues and emphasis markers
 5. **Segment** - Splits into 4-8 social media segments (~60 seconds each)
+
+Coordinator enforces a Pipeline Contract: it runs sequentially (Research → Outline → Draft → Polish → Segment) and only emits a final response after Segment completes. Earlier stage outputs are treated as intermediate.
 
 ### Outputs & Files
 
@@ -134,6 +140,48 @@ mcp:
         NOTION_TOKEN: "your_notion_token_here"
 ```
 
+### Firecrawl MCP (Web search/scrape)
+
+Firecrawl powers web search/scrape for the Research stage via MCP.
+
+1) Set your API key in `.env`:
+
+```bash
+FIRECRAWL_API_KEY=fc-xxxxxxx
+```
+
+2) Default config (remote SSE) — already set in `config/runconfig.yaml`:
+
+```yaml
+mcp:
+  enabled: true
+  connection:
+    type: sse
+    stdio:
+      command: npx
+      args: ["-y", "firecrawl-mcp"]
+      env:
+        FIRECRAWL_API_KEY: "${ENV:FIRECRAWL_API_KEY}"
+    sse:
+      url: "https://mcp.firecrawl.dev/${ENV:FIRECRAWL_API_KEY}/sse"
+      headers: {}
+# All Firecrawl tools are exposed by default (no tool_filter)
+```
+
+3) Optional: Local stdio (privacy/offline-friendly). Switch `type: stdio` and run the server locally:
+
+```bash
+env FIRECRAWL_API_KEY=$FIRECRAWL_API_KEY npx -y firecrawl-mcp
+```
+
+If you prefer to restrict tool usage, you can add a `tool_filter`:
+
+```yaml
+mcp:
+  tool_filter:
+    - "firecrawl_search"
+```
+
 ## Testing
 
 Test Notion connection:
@@ -153,6 +201,7 @@ pytest -q
 - **"Context variable not found"** — Ensure pipeline stages don't reference undefined variables
 - **Virtual environment** — Always activate: `source .venv/bin/activate`
 - **"Tool or function not found (e.g., search)"** — Ensure required tools are registered/enabled in config. If you disabled MCP or external tools, the Research stage may fail. Re-enable the relevant tool integration or adjust the Research instruction to avoid external calls.
+- **SSE vs stdio** — Remote SSE is turnkey but depends on network; if flaky or for local privacy, switch to `connection.type: stdio` and run `npx -y firecrawl-mcp` locally with `FIRECRAWL_API_KEY`.
 
 ## Architecture
 
