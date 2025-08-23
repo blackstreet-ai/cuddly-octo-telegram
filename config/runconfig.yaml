@@ -2,12 +2,12 @@ app_name: bsj-script-writer
 
 # Enable verbose logging to see step outputs
 logging:
-  level: DEBUG
-  show_intermediate_outputs: true
+  level: INFO
+  show_intermediate_outputs: false
 
 # Save intermediate outputs to files
 output:
-  save_intermediate_steps: true
+  save_intermediate_steps: false
   output_dir: "./pipeline_outputs"
   formats: ["json", "markdown"]
 
@@ -52,7 +52,7 @@ agents:
       - After POLISH, invoke SEGMENT with the polished script.
       - Only after SEGMENT, produce the final response summarizing results and including deliverables.     
   research_summarizer:
-    model: gemini-2.5-flash
+    model: gemini-2.5-pro
     name: research_summarizer
     description: Finds recent, credible, diverse sources; distills key facts, stats, quotes, and tensions.
     instruction: |
