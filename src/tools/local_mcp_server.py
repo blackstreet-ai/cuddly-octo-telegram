@@ -18,7 +18,9 @@ import re
 from typing import Any, Dict, List, Optional
 
 import httpx
+import anyio
 from mcp.server.fastmcp import FastMCP
+from mcp.server.stdio import stdio_server
 
 # Reuse existing project utilities where possible
 from src.tools.demo_tools import keyword_extract as demo_keyword_extract
@@ -133,6 +135,11 @@ def firecrawl_search(
     }
 
 
+async def _main() -> None:
+    # Start an MCP stdio server and hand FastMCP the read/write streams
+    async with stdio_server() as (read, write):
+        await app.run(read, write)
+
+
 if __name__ == "__main__":
-    # Run as a stdio MCP server
-    app.run_stdio()
+    anyio.run(_main)
