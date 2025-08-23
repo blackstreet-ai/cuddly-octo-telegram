@@ -194,6 +194,37 @@ mcp:
     - "firecrawl_search"
 ```
 
+### Local MCP (stdio)
+
+If remote SSE is flaky or you want fully local tools, use the built-in local MCP server.
+
+1) Switch config to stdio in `config/runconfig.yaml`:
+
+```yaml
+mcp:
+  enabled: true
+  connection:
+    type: stdio
+    stdio:
+      command: python
+      args: ["-m", "src.tools.local_mcp_server"]
+      env: {}
+```
+
+2) Tools available from the local server:
+
+- `http_fetch(url: str)` → `{status, headers, text}`
+- `extract_text(html: str)` → `{text}`
+- `keyword_extract(text: str, top_k: int=10)` → `{keywords: [str]}`
+
+These are implemented in `src/tools/local_mcp_server.py` and reuse existing utilities where possible (e.g., `src/tools/demo_tools.py`).
+
+3) Run the app as usual (the app spawns the server automatically):
+
+```bash
+uv run python -m src.app --task "Outline a commentary on X without external web research." --log-level DEBUG
+```
+
 ## Testing
 
 Test Notion connection:

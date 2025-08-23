@@ -93,14 +93,14 @@ agents:
 mcp:
   enabled: true
   connection:
-    type: sse
+    type: stdio
     stdio:
-      command: npx
+      command: python
       args:
-        - "-y"
-        - "firecrawl-mcp"
-      env:
-        FIRECRAWL_API_KEY: "${ENV:FIRECRAWL_API_KEY}"
+        - -m
+        - src.tools.local_mcp_server
+      env: {}
+    # SSE config retained for reference; unused when type=stdio
     sse:
       url: "https://mcp.firecrawl.dev/${ENV:FIRECRAWL_API_KEY}/sse"
       headers: {}
