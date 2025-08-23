@@ -20,15 +20,17 @@ A specialized multi-agent system for generating commentary scripts using Google'
 ## Setup
 
 ```bash
-# Create and activate a Python 3.11 virtualenv
-python3.11 -m venv .venv
+# 1) Install uv (fast Python package/dependency manager)
+curl -Ls https://astral.sh/uv/install.sh | sh
+
+# 2) Create and activate a local virtual environment
+uv venv --python 3.11
 source .venv/bin/activate
 
-# Install dependencies
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+# 3) Sync dependencies from pyproject.toml (creates uv.lock)
+uv sync
 
-# Configure API credentials
+# 4) Configure API credentials
 cp .env.sample .env
 # Edit .env and add your Google AI Studio API key:
 # GOOGLE_API_KEY=your_api_key_here
@@ -38,6 +40,16 @@ cp .env.sample .env
 
 # Optional: Configure Firecrawl (web search/scrape)
 # FIRECRAWL_API_KEY=fc-xxxxxxx
+```
+
+### Dependency management
+
+- **uv is the source of truth** for dependencies via `pyproject.toml` and `uv.lock`.
+- `requirements.txt` is kept only for compatibility with older workflows.
+- To regenerate `requirements.txt` from uv, run:
+
+```bash
+uv export --format requirements-txt --output requirements.txt
 ```
 
 ## Usage
@@ -186,12 +198,12 @@ mcp:
 
 Test Notion connection:
 ```bash
-python test_notion.py
+uv run python test_notion.py
 ```
 
 Run unit tests:
 ```bash
-pytest -q
+uv run pytest -q
 ```
 
 ## Troubleshooting
