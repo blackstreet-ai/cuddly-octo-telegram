@@ -1,6 +1,6 @@
 from typing import List, Optional
 
-from google.adk.agents import LlmAgent
+from google.adk.agents import LlmAgent, SequentialAgent
 
 from src.agents.greeter import build_greeter
 from src.agents.executor import build_executor
@@ -114,27 +114,38 @@ def build_coordinator(
             )
         ]
 
-    # Attach topic_tools (Notion MCP) to the coordinator itself since topic_clarifier is removed
-    coordinator_tools: List[object] = []
-    if topic_tools:
-        coordinator_tools.extend(topic_tools)
-    
-    coordinator = LlmAgent(
-        model=coordinator_cfg.get("model", "gemini-2.0-flash"),
-        name=coordinator_cfg.get("name", "coordinator"),
-        description=coordinator_cfg.get(
-            "description",
-            "Coordinates greeting and task execution.",
-        ),
-        instruction=coordinator_cfg.get(
-            "instruction",
-            (
-                "You are a coordinator. If the user needs greeting/clarification, "
-                "delegate to greeter. If the task is clear, delegate to executor. "
-                "Use sub_agents appropriately."
+    # Build the coordinator agent
+    if has_greeter and has_executor:
+        # Legacy coordinator remains an LlmAgent to preserve behavior
+        coordinator_tools: List[object] = []
+        if topic_tools:
+            coordinator_tools.extend(topic_tools)
+        coordinator = LlmAgent(
+            model=coordinator_cfg.get("model", "gemini-2.0-flash"),
+            name=coordinator_cfg.get("name", "coordinator"),
+            description=coordinator_cfg.get(
+                "description",
+                "Coordinates greeting and task execution.",
             ),
-        ),
-        tools=coordinator_tools,
-        sub_agents=sub_agents,
-    )
+            instruction=coordinator_cfg.get(
+                "instruction",
+                (
+                    "You are a coordinator. If the user needs greeting/clarification, "
+                    "delegate to greeter. If the task is clear, delegate to executor. "
+                    "Use sub_agents appropriately."
+                ),
+            ),
+            tools=coordinator_tools,
+            sub_agents=sub_agents,
+        )
+    else:
+        # Pipeline-aware path: enforce strict ordering with a Sequential workflow agent
+        coordinator = SequentialAgent(
+            name=coordinator_cfg.get("name", "coordinator"),
+            description=coordinator_cfg.get(
+                "description",
+                "Executes a strict, end-to-end pipeline.",
+            ),
+            sub_agents=sub_agents,
+        )
     return coordinator
