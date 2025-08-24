@@ -14,9 +14,12 @@ async def build_mcp_toolset_from_config(mcp_cfg: Dict[str, Any]) -> Optional[Any
           command: npx
           args: ["-y", "@modelcontextprotocol/server-filesystem", "/absolute/path"]
           env: { }
+          timeout_seconds: 60  # Optional; defaults to 60s
         sse:
           url: "https://example"
           headers: { }
+          timeout_seconds: 60            # Optional; defaults to 60s
+          sse_read_timeout_seconds: 300  # Optional; defaults to 300s
       tool_filter: []
     """
     if not mcp_cfg or not mcp_cfg.get("enabled", False):
@@ -38,10 +41,12 @@ async def build_mcp_toolset_from_config(mcp_cfg: Dict[str, Any]) -> Optional[Any
         command = stdio.get("command")
         args = stdio.get("args", [])
         env = stdio.get("env", None)
+        timeout_seconds = float(stdio.get("timeout_seconds", 60.0))
         if not command:
             return None
         params = StdioConnectionParams(
-            server_params=StdioServerParameters(command=command, args=args, env=env)
+            server_params=StdioServerParameters(command=command, args=args, env=env),
+            timeout=timeout_seconds,
         )
         return MCPToolset(connection_params=params, tool_filter=tool_filter)
 
@@ -53,9 +58,16 @@ async def build_mcp_toolset_from_config(mcp_cfg: Dict[str, Any]) -> Optional[Any
         sse = conn_cfg.get("sse", {})
         url = sse.get("url")
         headers = sse.get("headers", None)
+        timeout_seconds = float(sse.get("timeout_seconds", 60.0))
+        read_timeout_seconds = float(sse.get("sse_read_timeout_seconds", 300.0))
         if not url:
             return None
-        params = SseConnectionParams(url=url, headers=headers)
+        params = SseConnectionParams(
+            url=url,
+            headers=headers,
+            timeout=timeout_seconds,
+            sse_read_timeout=read_timeout_seconds,
+        )
         return MCPToolset(connection_params=params, tool_filter=tool_filter)
 
     # Unknown connection type or missing

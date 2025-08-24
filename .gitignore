@@ -20,5 +20,4 @@ venv/
 .venv-*/
 .venv*/
 venv/
-.windsurf/
 pipeline_outputs/
