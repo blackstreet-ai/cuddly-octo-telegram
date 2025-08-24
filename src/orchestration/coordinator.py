@@ -2,16 +2,12 @@ from typing import List, Optional
 
 from google.adk.agents import LlmAgent, SequentialAgent
 
-from src.agents.greeter import build_greeter
-from src.agents.executor import build_executor
-
 
 def _build_llm_agent_from_cfg(cfg: dict, extra_tools: Optional[List[object]] = None) -> LlmAgent:
     """Construct a generic LlmAgent from a config dict.
 
-    This allows us to support arbitrary sub-agent definitions in runconfig.yaml
-    without needing a bespoke builder per agent, while keeping backwards
-    compatibility with existing greeter/executor helpers.
+    This allows us to support arbitrary sub-agent definitions in `config/runconfig.yaml`
+    without needing a bespoke builder per agent.
     """
     return LlmAgent(
         model=cfg.get("model", "gemini-2.0-flash"),
