@@ -4,7 +4,7 @@ Local MCP server (stdio) exposing simple, reliable tools for the agents.
 Tools provided:
 - http_fetch(url: str) -> {status, headers, text}
 - extract_text(html: str) -> {text}
-- keyword_extract(text: str, top_k: int=10) -> {keywords: [str]}
+- firecrawl_search(...) -> Firecrawl search response summary
 
 Implementation uses the MCP Python library's FastMCP helper for a minimal server
 that communicates over stdio. The app will spawn this as a subprocess when
@@ -20,9 +20,6 @@ from typing import Any, Dict, List, Optional
 import httpx
 from mcp.server.fastmcp import FastMCP
 from dotenv import load_dotenv
-
-# Reuse existing project utilities where possible
-from src.tools.demo_tools import keyword_extract as demo_keyword_extract
 
 
 # Load variables from .env so subprocess has access to keys like FIRECRAWL_API_KEY
@@ -63,16 +60,7 @@ def extract_text(html: str) -> Dict[str, str]:
     return {"text": text}
 
 
-@app.tool()
-def mcp_keyword_extract(text: str, top_k: int = 10) -> Dict[str, List[str]]:
-    """Extract top keywords from text using the project's demo utility.
-
-    Renamed with an MCP-specific prefix to avoid duplicate function names when
-    aggregating tools from multiple sources.
-    """
-    top_k = int(top_k or 10)
-    kws = demo_keyword_extract(text or "", top_k=top_k)
-    return {"keywords": kws}
+# Note: Keyword extraction demo tool removed to decouple from local demo utilities.
 
 
 @app.tool()

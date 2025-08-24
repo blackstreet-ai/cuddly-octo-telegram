@@ -81,7 +81,9 @@ def test_database_query():
         for i, result in enumerate(results['results'][:3]):
             title_prop = result.get('properties', {}).get('topic', {})
             if title_prop.get('type') == 'title':
-                title = title_prop.get('title', [{}])[0].get('plain_text', 'Untitled')
+                titles = title_prop.get('title') or []
+                first = titles[0] if titles else {}
+                title = first.get('plain_text', 'Untitled')
                 print(f"   {i+1}. {title}")
         return True
     else:

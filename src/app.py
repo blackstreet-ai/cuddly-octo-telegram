@@ -19,7 +19,6 @@ from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactServ
 # Local imports
 from src.orchestration.coordinator import build_coordinator
 from src.tools.mcp import build_mcp_toolset_from_config, close_mcp_toolset_if_any
-from src.tools.demo_tools import math_eval, summarize, keyword_extract
 
 # Get project root
 def project_root() -> str:
@@ -60,7 +59,7 @@ async def build_system(cfg: dict) -> Tuple[LlmAgent, Optional[object]]:
     # Build coordinator
     # - shared_tools go to all sub-agents (attach MCP here so research_summarizer can use it)
     # - topic_tools would be only for topic_clarifier if present (unused now)
-    shared_tools = [math_eval, summarize, keyword_extract]
+    shared_tools = []
     if mcp_toolset:
         shared_tools.append(mcp_toolset)
     topic_tools = []

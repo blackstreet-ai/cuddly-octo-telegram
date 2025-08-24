@@ -18,7 +18,7 @@ pipeline:
 
 agents:
   coordinator:
-    model: gemini-2.5-pro
+    model: gemini-2.5-flash
     name: coordinator
     description: Orchestrates a strict, end-to-end pipeline from topic intake through research, outlining, drafting, polishing, and social slicing.
     instruction: |
