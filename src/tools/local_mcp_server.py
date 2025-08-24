@@ -129,6 +129,123 @@ def firecrawl_search(
     }
 
 
+# ------------------------------
+# Notion MCP tools
+# ------------------------------
+
+def _notion_headers() -> Dict[str, str]:
+    """Build headers for Notion API from env.
+
+    Requires NOTION_MCP_TOKEN to be set in env (e.g., via .env and load_dotenv()).
+    """
+    token = os.getenv("NOTION_MCP_TOKEN")
+    if not token:
+        # Return headers that will certainly fail so the tool can report a clear error
+        return {}
+    return {
+        "Authorization": f"Bearer {token}",
+        "Notion-Version": "2022-06-28",
+        "Content-Type": "application/json",
+    }
+
+
+@app.tool()
+def notion_query_eligible(
+    database_id: str,
+    status_property: str = "Status",
+    status_value: str = "Not Started",
+    page_size: int = 5,
+) -> Dict[str, Any]:
+    """Query a Notion database for rows eligible to process.
+
+    Args:
+        database_id: The Notion database ID.
+        status_property: Name of the select property used to track status (default: "Status").
+        status_value: Select option value indicating eligibility (default: "Not Started").
+        page_size: Max number of rows to return.
+    Returns:
+        Dict containing success flag and minimal page info list [{page_id, title, properties}].
+    """
+    headers = _notion_headers()
+    if not headers:
+        return {"success": False, "error": "NOTION_MCP_TOKEN not set in environment"}
+
+    payload: Dict[str, Any] = {
+        "filter": {
+            "property": status_property,
+            "select": {"equals": status_value},
+        },
+        "page_size": int(page_size or 5),
+        "sorts": [{"property": "last_edited_time", "direction": "descending"}],
+    }
+
+    url = f"https://api.notion.com/v1/databases/{database_id}/query"
+    with httpx.Client(timeout=30) as client:
+        resp = client.post(url, headers=headers, json=payload)
+        try:
+            data = resp.json()
+        except Exception:
+            data = {"raw": resp.text}
+
+    results = []
+    for row in data.get("results", []):
+        page_id = row.get("id")
+        props = row.get("properties", {})
+        # Try to derive a title from a common title prop if present
+        title = None
+        for prop in props.values():
+            if isinstance(prop, dict) and prop.get("type") == "title":
+                items = prop.get("title") or []
+                if items:
+                    title = items[0].get("plain_text") or items[0].get("text", {}).get("content")
+                    break
+        results.append({"page_id": page_id, "title": title, "properties": props})
+
+    return {
+        "success": resp.status_code == 200,
+        "status": resp.status_code,
+        "count": len(results),
+        "results": results,
+    }
+
+
+@app.tool()
+def notion_update_status(
+    page_id: str,
+    status_property: str = "Status",
+    status_value: str = "In Progress",
+) -> Dict[str, Any]:
+    """Update a Notion page's status select property.
+
+    Args:
+        page_id: The Notion page ID to update.
+        status_property: Name of the select property used to track status.
+        status_value: New status (select option) value.
+    Returns:
+        Dict with success flag and response status.
+    """
+    headers = _notion_headers()
+    if not headers:
+        return {"success": False, "error": "NOTION_MCP_TOKEN not set in environment"}
+
+    payload = {
+        "properties": {
+            status_property: {
+                "select": {"name": status_value},
+            }
+        }
+    }
+    url = f"https://api.notion.com/v1/pages/{page_id}"
+    with httpx.Client(timeout=30) as client:
+        resp = client.patch(url, headers=headers, json=payload)
+        body: Dict[str, Any]
+        try:
+            body = resp.json()
+        except Exception:
+            body = {"raw": resp.text}
+    return {"success": resp.status_code == 200, "status": resp.status_code, "data": body}
+
+
 if __name__ == "__main__":
     # Start FastMCP over stdio using the built-in transport handler
     app.run("stdio")

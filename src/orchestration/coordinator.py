@@ -59,6 +59,9 @@ def build_coordinator(
     else:
         # Pipeline-aware wiring path
         pipeline_order = [
+            # New first stage: topic_verifier (replaces legacy topic_clarifier)
+            # Keep legacy 'topic_clarifier' support by also wiring it if present
+            "topic_verifier",
             "topic_clarifier",
             "research_summarizer",
             "outline_organizer",
@@ -77,7 +80,8 @@ def build_coordinator(
                 tools_for_agent: List[object] = []
                 if shared_tools:
                     tools_for_agent.extend(shared_tools)
-                if key == "topic_clarifier" and topic_tools:
+                # Attach topic_tools to the topic intake stage (new: topic_verifier; legacy: topic_clarifier)
+                if key in ("topic_verifier", "topic_clarifier") and topic_tools:
                     tools_for_agent.extend(topic_tools)
                 sub_agents.append(_build_llm_agent_from_cfg(agent_cfg, extra_tools=tools_for_agent))
                 used_keys.add(key)
@@ -90,7 +94,8 @@ def build_coordinator(
             if not isinstance(agent_cfg, dict):
                 continue
             tools_for_agent = list(shared_tools or [])
-            if key == "topic_clarifier" and topic_tools:
+            # Ensure topic_tools also attach if the only topic stage is present outside fixed ordering
+            if key in ("topic_verifier", "topic_clarifier") and topic_tools:
                 tools_for_agent.extend(topic_tools)
             sub_agents.append(_build_llm_agent_from_cfg(agent_cfg, extra_tools=tools_for_agent))
             used_keys.add(key)
