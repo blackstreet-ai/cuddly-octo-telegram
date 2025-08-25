@@ -20,18 +20,30 @@ from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactServ
 from src.orchestration.coordinator import build_coordinator
 from src.tools.mcp import build_mcp_toolset_from_config, close_mcp_toolset_if_any
 
-# Get project root
+# Get project root (directory containing the repository)
 def project_root() -> str:
-    return os.path.dirname(os.path.abspath(__file__ + "/.."))
+    # src/app.py -> src -> project root
+    return Path(__file__).resolve().parent.parent.as_posix()
 
 # Load config from YAML file with ${PROJECT_ROOT} placeholder expansion
 def load_config(path: str) -> dict:
     # Load environment variables from .env if present
     load_dotenv()
-    with open(path, "r", encoding="utf-8") as f:
+
+    # Resolve config path robustly: try as-given, then relative to project root
+    p = Path(path)
+    if not p.is_absolute() and not p.exists():
+        root = Path(project_root())
+        candidate = root / path
+        if candidate.exists():
+            p = candidate
+    if not p.exists():
+        raise FileNotFoundError(f"Run config not found: {path}. Also tried: {candidate if 'candidate' in locals() else ''}")
+
+    with p.open("r", encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
     # simple ${PROJECT_ROOT} placeholder expansion for strings
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    root = project_root()
     def expand(value):
         if isinstance(value, str):
             # Expand ${PROJECT_ROOT}
@@ -296,4 +308,13 @@ def main() -> None:
 
 # Run app
 if __name__ == "__main__":
+    # If no CLI args are provided, pre-populate sys.argv with sensible defaults.
+    # This preserves normal behavior when the user passes their own flags.
+    if len(sys.argv) == 1:
+        sys.argv += [
+            "--config", "config/runconfig.yaml",
+            "--task", "Start pipeline; use Notion topic intake if available.",
+            "--auto-continue",
+            "--log-level", "INFO",
+        ]
     main()
