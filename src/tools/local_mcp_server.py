@@ -151,9 +151,10 @@ def _notion_headers() -> Dict[str, str]:
 
 @app.tool()
 def notion_query_eligible(
-    database_id: str,
+    database_id: Optional[str] = None,
     status_property: str = "Status",
     status_value: str = "Not Started",
+    property_type: str = "select",
     page_size: int = 5,
 ) -> Dict[str, Any]:
     """Query a Notion database for rows eligible to process.
@@ -170,22 +171,70 @@ def notion_query_eligible(
     if not headers:
         return {"success": False, "error": "NOTION_MCP_TOKEN not set in environment"}
 
-    payload: Dict[str, Any] = {
-        "filter": {
-            "property": status_property,
-            "select": {"equals": status_value},
-        },
-        "page_size": int(page_size or 5),
-        "sorts": [{"property": "last_edited_time", "direction": "descending"}],
-    }
+    # Resolve database_id from env if not provided
+    if not database_id:
+        database_id = os.getenv("NOTION_DATABASE_ID")
+        if not database_id:
+            return {
+                "success": False,
+                "error": "database_id not provided and NOTION_DATABASE_ID not set in environment",
+            }
 
-    url = f"https://api.notion.com/v1/databases/{database_id}/query"
-    with httpx.Client(timeout=30) as client:
-        resp = client.post(url, headers=headers, json=payload)
+    def _alt_values(val: str) -> List[str]:
+        # Try common capitalization variants
+        alts = set()
+        alts.add(val)
+        if val.lower() == "not started":
+            alts.update(["Not started", "Not Started"])
+        elif val.lower() == "in progress":
+            alts.update(["In progress", "In Progress"])
+        elif val.lower() == "done":
+            alts.update(["Done"])
+        else:
+            # generic title-case fallback
+            alts.add(val.title())
+        return list(alts)
+
+    def _build_payload(filter_key: str, value: str) -> Dict[str, Any]:
+        # Use timestamp-based sort; Notion rejects `property: last_edited_time`
+        return {
+            "filter": {
+                "property": status_property,
+                filter_key: {"equals": value},
+            },
+            "page_size": int(page_size or 5),
+            "sorts": [{"timestamp": "last_edited_time", "direction": "descending"}],
+        }
+
+    def _try_query(client: httpx.Client, filter_key: str, value: str) -> tuple[int, Dict[str, Any]]:
+        url = f"https://api.notion.com/v1/databases/{database_id}/query"
+        resp = client.post(url, headers=headers, json=_build_payload(filter_key, value))
         try:
             data = resp.json()
         except Exception:
             data = {"raw": resp.text}
+        return resp.status_code, data
+
+    with httpx.Client(timeout=30) as client:
+        preferred_key = "select" if (property_type or "select").lower() == "select" else "status"
+        fallback_key = "status" if preferred_key == "select" else "select"
+
+        # Try preferred key with value and alternates
+        status_code, data = _try_query(client, preferred_key, status_value)
+        if status_code != 200:
+            # Try fallback key with original value
+            status_code, data = _try_query(client, fallback_key, status_value)
+        if status_code == 200 and not data.get("results"):
+            # Try alternate capitalizations on preferred key first, then fallback key
+            for v in _alt_values(status_value):
+                status_code, data = _try_query(client, preferred_key, v)
+                if status_code == 200 and data.get("results"):
+                    break
+            if status_code == 200 and not data.get("results"):
+                for v in _alt_values(status_value):
+                    status_code, data = _try_query(client, fallback_key, v)
+                    if status_code == 200 and data.get("results"):
+                        break
 
     results = []
     for row in data.get("results", []):
@@ -201,12 +250,21 @@ def notion_query_eligible(
                     break
         results.append({"page_id": page_id, "title": title, "properties": props})
 
-    return {
-        "success": resp.status_code == 200,
-        "status": resp.status_code,
+    result_obj = {
+        "success": status_code == 200,
+        "status": status_code,
         "count": len(results),
         "results": results,
     }
+    # Attach minimal debug info when unsuccessful or empty
+    if status_code != 200:
+        result_obj["notion_error"] = data
+    elif not results:
+        result_obj["debug"] = {
+            "tried_property_type_preference": (property_type or "select").lower(),
+            "status_value": status_value,
+        }
+    return result_obj
 
 
 @app.tool()
@@ -214,6 +272,7 @@ def notion_update_status(
     page_id: str,
     status_property: str = "Status",
     status_value: str = "In Progress",
+    property_type: str = "select",
 ) -> Dict[str, Any]:
     """Update a Notion page's status select property.
 
@@ -228,21 +287,68 @@ def notion_update_status(
     if not headers:
         return {"success": False, "error": "NOTION_MCP_TOKEN not set in environment"}
 
-    payload = {
-        "properties": {
-            status_property: {
-                "select": {"name": status_value},
+    def _alt_values(val: str) -> List[str]:
+        alts = set()
+        alts.add(val)
+        if val.lower() == "not started":
+            alts.update(["Not started", "Not Started"])
+        elif val.lower() == "in progress":
+            alts.update(["In progress", "In Progress"])
+        elif val.lower() == "done":
+            alts.update(["Done"])
+        else:
+            alts.add(val.title())
+        return list(alts)
+
+    def _payload(update_key: str, value: str) -> Dict[str, Any]:
+        return {
+            "properties": {
+                status_property: {
+                    update_key: {"name": value},
+                }
             }
         }
-    }
+
     url = f"https://api.notion.com/v1/pages/{page_id}"
     with httpx.Client(timeout=30) as client:
-        resp = client.patch(url, headers=headers, json=payload)
-        body: Dict[str, Any]
+        preferred_key = "select" if (property_type or "select").lower() == "select" else "status"
+        fallback_key = "status" if preferred_key == "select" else "select"
+
+        # Try preferred key first
+        resp = client.patch(url, headers=headers, json=_payload(preferred_key, status_value))
         try:
-            body = resp.json()
+            body: Dict[str, Any] = resp.json()
         except Exception:
             body = {"raw": resp.text}
+
+        if resp.status_code != 200:
+            # Try fallback key
+            resp = client.patch(url, headers=headers, json=_payload(fallback_key, status_value))
+            try:
+                body = resp.json()
+            except Exception:
+                body = {"raw": resp.text}
+
+        if resp.status_code != 200:
+            # Try alternate capitalizations on both keys
+            for v in _alt_values(status_value):
+                resp = client.patch(url, headers=headers, json=_payload(preferred_key, v))
+                try:
+                    body = resp.json()
+                except Exception:
+                    body = {"raw": resp.text}
+                if resp.status_code == 200:
+                    break
+            if resp.status_code != 200:
+                for v in _alt_values(status_value):
+                    resp = client.patch(url, headers=headers, json=_payload(fallback_key, v))
+                    try:
+                        body = resp.json()
+                    except Exception:
+                        body = {"raw": resp.text}
+                    if resp.status_code == 200:
+                        break
+
     return {"success": resp.status_code == 200, "status": resp.status_code, "data": body}
 
 

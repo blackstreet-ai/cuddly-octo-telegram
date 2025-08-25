@@ -107,3 +107,18 @@ def test_notion_tools_missing_token(monkeypatch):
 
     assert out1["success"] is False and "error" in out1
     assert out2["success"] is False and "error" in out2
+
+
+def test_notion_query_eligible_env_database_id(monkeypatch):
+    # Provide token and default database ID in env
+    monkeypatch.setenv("NOTION_MCP_TOKEN", "notion-token")
+    monkeypatch.setenv("NOTION_DATABASE_ID", "db_from_env")
+
+    # Patch httpx.Client to query mock
+    import httpx
+    monkeypatch.setattr(httpx, "Client", _MockClientQuery)
+
+    # Call without database_id argument; tool should read from env
+    out = notion_query_eligible(status_property="Status", status_value="Not Started", page_size=2)
+    assert out["success"] is True
+    assert out["count"] == 1
