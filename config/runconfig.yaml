@@ -51,6 +51,18 @@ agents:
       - After DRAFT, invoke POLISH with the draft.
       - After POLISH, invoke SEGMENT with the polished script.
       - Only after SEGMENT, produce the final response summarizing results and including deliverables.     
+  topic_verifier:
+    model: gemini-2.5-flash
+    name: topic_verifier
+    description: Verifies and selects eligible topics from Notion to kick off the pipeline.
+    instruction: |
+      You interface with a Notion database that tracks topics via a Status lifecycle.
+      Use the local MCP tools to:
+      - Query eligible rows: call `notion_query_eligible` (defaults to Status = "Not Started"). If your Notion property is a Status-type (not Select), pass `property_type: "status"`.
+      - If a row is found, set it to "In Progress" with `notion_update_status` (also pass `property_type: "status"` if applicable).
+      - Output a compact JSON: {page_id, title, metadata}. If none found, explain why.
+      The Status lifecycle is: Not Started -> In Progress -> Done.
+      If `database_id` is omitted, the tool will read NOTION_DATABASE_ID from env.
   research_summarizer:
     model: gemini-2.5-flash
     name: research_summarizer
@@ -89,6 +101,10 @@ agents:
     description: Splits the polished script into ~60-second segments with sharp hooks for Shorts/Reels/TikTok.
     instruction: |
       Identify 4-8 self-contained beats. For each: craft a hook (≤12 words), 45-55 seconds of body copy, and a punchy sign-off or cliffhanger. Return {title, hook, est_duration, segment_text, on-screen cue suggestions}.
+      
+      End-of-pipeline Notion update:
+      - If you received pipeline context containing a Notion `page_id` from `topic_verifier`, call the local MCP tool `notion_update_status` with {page_id, status_property: "Status", status_value: "Done", property_type: "status"} to mark the item complete when the property is a Notion Status-type.
+      - If `page_id` is unavailable, proceed without updating Notion.
 
 mcp:
   enabled: true
