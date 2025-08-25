@@ -15,7 +15,8 @@ A specialized multi-agent system for generating commentary scripts using Google'
 
 - Python 3.11+
 - A Google AI Studio API key (or Vertex AI credentials)
-- Optional: Firecrawl API key (for web search/scrape via MCP)
+- Optional: Tavily API key (preferred for web search via local MCP)
+- Optional: Firecrawl API key (backward-compat only)
 
 ## Setup
 
@@ -38,7 +39,10 @@ cp .env.sample .env
 # Optional: Configure Notion integration
 # NOTION_MCP_TOKEN=your_notion_integration_token
 
-# Optional: Configure Firecrawl (web search/scrape)
+# Optional: Configure Tavily (preferred web search)
+# TAVILY_API_KEY=tvly-xxxxxxx
+
+# Optional: Configure Firecrawl (backward-compat)
 # FIRECRAWL_API_KEY=fc-xxxxxxx
 ```
 
@@ -215,7 +219,8 @@ mcp:
 
 - `http_fetch(url: str)` → `{status, headers, text}`
 - `extract_text(html: str)` → `{text}`
-- `firecrawl_search(query: str, limit: int = 5, sources?: [web|news|images], scrape_formats?: [markdown|links|...], tbs?: str, location?: str, timeout_ms?: int)` → Firecrawl `/v2/search` response summary
+- `tavily_search(query: str, max_results: int = 5, search_depth: "basic"|"advanced", include_answer?: bool, include_domains?: [str], exclude_domains?: [str])` → Tavily search response
+- `firecrawl_search(...)` → legacy, kept for backward compatibility
 
 These are implemented in `src/tools/local_mcp_server.py`.
 
@@ -224,6 +229,18 @@ These are implemented in `src/tools/local_mcp_server.py`.
 ```bash
 uv run python -m src.app --task "Outline a commentary on X without external web research." --log-level DEBUG
 ```
+
+### Tavily swap note
+
+- We replaced Firecrawl as the default search with Tavily for reliability and cost control.
+- The new MCP tool is implemented in `src/tools/local_mcp_server.py` as `tavily_search()`.
+- To enable:
+  1. Set your key in `.env`:
+     ```bash
+     TAVILY_API_KEY=tvly-xxxxxxx
+     ```
+  2. Ensure MCP connection is `type: stdio` in `config/runconfig.yaml` (already configured).
+- Firecrawl config and SSE block were removed from `config/runconfig.yaml`. The `firecrawl_search` tool remains available but is considered legacy.
 
 ## Testing
 
