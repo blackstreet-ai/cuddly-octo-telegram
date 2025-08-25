@@ -4,7 +4,7 @@ from typing import Any, Dict
 import pytest
 
 # Import the tool function directly
-from src.tools.local_mcp_server import firecrawl_search
+from src.tools.local_mcp_server import tavily_search
 
 
 class _MockResp:
@@ -29,59 +29,56 @@ class _MockClient:
 
     def post(self, url: str, headers: Dict[str, str], json: Dict[str, Any]):
         # Basic assertion on request composition
-        assert url == "https://api.firecrawl.dev/v2/search"
-        assert headers.get("Authorization", "").startswith("Bearer ")
+        assert url == "https://api.tavily.com/search"
+        assert headers.get("X-Tavily-API-Key", "").strip() != ""
         assert json.get("query") == "openai"
-        # Return a minimal successful Firecrawl-like payload
+        # Return a minimal successful Tavily-like payload
         return _MockResp(
             200,
             {
-                "success": True,
-                "data": {
-                    "web": [
-                        {
-                            "url": "https://openai.com/",
-                            "title": "OpenAI",
-                            "description": "Creating safe AGI",
-                            "position": 1,
-                        }
-                    ]
-                },
+                "query": "openai",
+                "answer": "OpenAI is an AI research company.",
+                "results": [
+                    {
+                        "url": "https://openai.com/",
+                        "title": "OpenAI",
+                        "content": "Creating safe AGI",
+                    }
+                ],
             },
         )
 
 
-def test_firecrawl_search_success(monkeypatch):
+def test_tavily_search_success(monkeypatch):
     # Set API key
-    monkeypatch.setenv("FIRECRAWL_API_KEY", "fc-test-key")
+    monkeypatch.setenv("TAVILY_API_KEY", "tvly-test-key")
 
     # Patch httpx.Client to our mock
     import httpx  # local import to allow monkeypatch
 
     monkeypatch.setattr(httpx, "Client", _MockClient)
 
-    out = firecrawl_search(
+    out = tavily_search(
         query="openai",
-        limit=1,
-        sources=["web"],
-        scrape_formats=["markdown"],
-        tbs="qdr:d",
-        location="US",
-        timeout_ms=5000,
+        max_results=1,
+        search_depth="basic",
+        include_answer=True,
+        include_domains=["openai.com"],
+        exclude_domains=["example.com"],
     )
 
     assert out["status"] == 200
     assert out["success"] is True
     assert isinstance(out.get("data"), dict)
-    assert "web" in out["data"]
-    assert out["data"]["web"][0]["url"].startswith("https://")
+    assert "results" in out["data"]
+    assert out["data"]["results"][0]["url"].startswith("https://")
 
 
-def test_firecrawl_search_missing_api_key(monkeypatch):
+def test_tavily_search_missing_api_key(monkeypatch):
     # Ensure API key is absent
-    monkeypatch.delenv("FIRECRAWL_API_KEY", raising=False)
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
 
-    out = firecrawl_search(query="openai")
+    out = tavily_search(query="openai")
 
     assert out["success"] is False
     assert "error" in out

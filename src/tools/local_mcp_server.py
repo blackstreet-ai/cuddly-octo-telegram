@@ -4,7 +4,8 @@ Local MCP server (stdio) exposing simple, reliable tools for the agents.
 Tools provided:
 - http_fetch(url: str) -> {status, headers, text}
 - extract_text(html: str) -> {text}
-- firecrawl_search(...) -> Firecrawl search response summary
+- tavily_search(...) -> Tavily web search response summary
+- firecrawl_search(...) -> Firecrawl search response summary (kept for backward-compat)
 
 Implementation uses the MCP Python library's FastMCP helper for a minimal server
 that communicates over stdio. The app will spawn this as a subprocess when
@@ -61,6 +62,75 @@ def extract_text(html: str) -> Dict[str, str]:
 
 
 # Note: Keyword extraction demo tool removed to decouple from local demo utilities.
+
+
+# ------------------------------
+# Tavily Search MCP tool
+# ------------------------------
+
+@app.tool()
+def tavily_search(
+    query: str,
+    max_results: int = 5,
+    search_depth: str = "basic",
+    include_answer: bool = False,
+    include_domains: Optional[List[str]] = None,
+    exclude_domains: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Search the web via Tavily.
+
+    Args:
+        query: Search query string.
+        max_results: Max number of results to return (1-10 typical).
+        search_depth: "basic" (faster) or "advanced" (deeper crawling) per Tavily API.
+        include_answer: If true, request Tavily's synthesized answer when available.
+        include_domains: Optional list of domains to prioritize/include.
+        exclude_domains: Optional list of domains to exclude.
+
+    Returns:
+        JSON-serializable dict including status, success, and data payload.
+    """
+    api_key = os.getenv("TAVILY_API_KEY")
+    if not api_key:
+        return {"success": False, "error": "TAVILY_API_KEY is not set in environment"}
+
+    payload: Dict[str, Any] = {
+        "query": query,
+        "max_results": int(max_results or 5),
+        "search_depth": search_depth or "basic",
+    }
+    # Common Tavily flags
+    if include_answer:
+        payload["include_answer"] = True
+    if include_domains:
+        payload["include_domains"] = list(include_domains)
+    if exclude_domains:
+        payload["exclude_domains"] = list(exclude_domains)
+
+    # Prefer header auth; some clients also support api_key in body. We set both for robustness.
+    headers = {
+        "Content-Type": "application/json",
+        "X-Tavily-API-Key": api_key,
+    }
+    payload.setdefault("api_key", api_key)
+
+    with httpx.Client(timeout=30) as client:
+        resp = client.post(
+            "https://api.tavily.com/search",
+            headers=headers,
+            json=payload,
+        )
+        try:
+            body: Dict[str, Any] = resp.json()
+        except Exception:
+            body = {"raw": resp.text}
+
+    # Tavily typically returns 200 with fields like results, answer, query, etc.
+    return {
+        "status": resp.status_code,
+        "success": resp.status_code == 200,
+        "data": body,
+    }
 
 
 @app.tool()

@@ -2,7 +2,7 @@ app_name: bsj-script-writer
 
 # Enable verbose logging to see step outputs
 logging:
-  level: DEBUG
+  level: INFO
   show_intermediate_outputs: true
 
 # Save intermediate outputs to files
@@ -14,11 +14,11 @@ output:
 # Pipeline behavior
 pipeline:
   # When true, run all stages without asking between steps
-  auto_continue: true
+  auto_continue: false
 
 agents:
   coordinator:
-    model: gemini-2.5-flash
+    model: gemini-2.0-flash
     name: coordinator
     description: Orchestrates a strict, end-to-end pipeline from topic intake through research, outlining, drafting, polishing, and social slicing.
     instruction: |
@@ -52,7 +52,7 @@ agents:
       - After POLISH, invoke SEGMENT with the polished script.
       - Only after SEGMENT, produce the final response summarizing results and including deliverables.     
   topic_verifier:
-    model: gemini-2.5-flash
+    model: gemini-2.0-flash
     name: topic_verifier
     description: Verifies and selects eligible topics from Notion to kick off the pipeline.
     instruction: |
@@ -64,13 +64,13 @@ agents:
       The Status lifecycle is: Not Started -> In Progress -> Done.
       If `database_id` is omitted, the tool will read NOTION_DATABASE_ID from env.
   research_summarizer:
-    model: gemini-2.5-flash
+    model: gemini-2.5-pro
     name: research_summarizer
     description: Finds recent, credible, diverse sources; distills key facts, stats, quotes, and tensions.
     instruction: |
       Use search to gather 3-7 high-quality sources (mix mainstream reporting, policy orgs/think tanks, government datasets, and credible local/Black media where relevant). Extract: claim, supporting evidence, date, author/outlet, link, perspective. Flag disagreements and uncertainties. Produce a bulleted digest + citation list.
   outline_organizer:
-    model: gemini-2.5-flash
+    model: gemini-2.0-flash
     name: outline_organizer
     description: Turns the research digest into a commentary outline using your template and voice.
     instruction: |
@@ -90,7 +90,7 @@ agents:
     instruction: |
       Write 900–1400 words unless the user specifies otherwise. Use rhythm and imagery; avoid academic filler and faux neutrality. Integrate citations naturally (“According to… in May 2025…”). Preserve systemic critique where warranted; do not sanitize.
   narration_polisher:
-    model: gemini-2.5-flash
+    model: gemini-2.0-flash
     name: narration_polisher
     description: Refines the draft for performance—cadence, emphasis, breath, timing.
     instruction: |
@@ -117,7 +117,3 @@ mcp:
         - src.tools.local_mcp_server
       env: {}
       timeout_seconds: 60
-    # SSE config retained for reference; unused when type=stdio
-    sse:
-      url: "https://mcp.firecrawl.dev/${ENV:FIRECRAWL_API_KEY}/sse"
-      headers: {}
