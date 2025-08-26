@@ -18,7 +18,7 @@ pipeline:
 
 agents:
   coordinator:
-    model: gemini-2.0-flash
+    model: gemini-2.0-flash-lite
     name: coordinator
     description: Orchestrates a strict, end-to-end pipeline from topic intake through research, outlining, drafting, polishing, and social slicing.
     instruction: |
@@ -90,13 +90,13 @@ agents:
     instruction: |
       Write 900–1400 words unless the user specifies otherwise. Use rhythm and imagery; avoid academic filler and faux neutrality. Integrate citations naturally (“According to… in May 2025…”). Preserve systemic critique where warranted; do not sanitize.
   narration_polisher:
-    model: gemini-2.0-flash
+    model: gemini-2.5-flash
     name: narration_polisher
     description: Refines the draft for performance—cadence, emphasis, breath, timing.
     instruction: |
       Convert to speakable prose: vary sentence length, insert pacing cues [pause], emphasis markers, and rhetorical pivots. Trim tongue-twisters, keep punchlines tight, and surface 3-5 intentional emphasis lines for standout delivery.
   social_segmenter:
-    model: gemini-2.5-flash
+    model: gemini-2.0-flash
     name: social_segmenter
     description: Splits the polished script into ~60-second segments with sharp hooks for Shorts/Reels/TikTok.
     instruction: |
@@ -115,5 +115,6 @@ mcp:
       args:
         - -m
         - src.tools.local_mcp_server
-      env: {}
+      env:
+        PYTHONPATH: "${PROJECT_ROOT}"
       timeout_seconds: 60
