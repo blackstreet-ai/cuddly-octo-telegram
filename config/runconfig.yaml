@@ -14,7 +14,7 @@ output:
 # Pipeline behavior
 pipeline:
   # When true, run all stages without asking between steps
-  auto_continue: false
+  auto_continue: true
 
 agents:
   coordinator:

@@ -233,6 +233,7 @@ def notion_query_eligible(
         database_id: The Notion database ID.
         status_property: Name of the select property used to track status (default: "Status").
         status_value: Select option value indicating eligibility (default: "Not Started").
+        property_type: Property schema to use for filtering: "select" (default) or "status" for newer Notion databases.
         page_size: Max number of rows to return.
     Returns:
         Dict containing success flag and minimal page info list [{page_id, title, properties}].
@@ -295,7 +296,7 @@ def notion_query_eligible(
             # Try fallback key with original value
             status_code, data = _try_query(client, fallback_key, status_value)
         if status_code == 200 and not data.get("results"):
-            # Try alternate capitalizations on preferred key first, then fallback key
+            # Try alternate capitalization on preferred key first, then fallback key
             for v in _alt_values(status_value):
                 status_code, data = _try_query(client, preferred_key, v)
                 if status_code == 200 and data.get("results"):
@@ -350,6 +351,7 @@ def notion_update_status(
         page_id: The Notion page ID to update.
         status_property: Name of the select property used to track status.
         status_value: New status (select option) value.
+        property_type: Property schema to use when updating: "select" (default) or "status" for newer Notion databases.
     Returns:
         Dict with success flag and response status.
     """

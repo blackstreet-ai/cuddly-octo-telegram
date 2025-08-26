@@ -314,7 +314,7 @@ if __name__ == "__main__":
         sys.argv += [
             "--config", "config/runconfig.yaml",
             "--task", "Start pipeline; use Notion topic intake if available.",
-            "--interactive",
+            "--auto-continue",
             "--log-level", "INFO",
         ]
     main()
