@@ -3,7 +3,7 @@ app_name: bsj-script-writer
 # Enable verbose logging to see step outputs
 logging:
   level: INFO
-  show_intermediate_outputs: true
+  show_intermediate_outputs: false
 
 # Save intermediate outputs to files
 output:
@@ -69,6 +69,11 @@ agents:
     description: Finds recent, credible, diverse sources; distills key facts, stats, quotes, and tensions.
     instruction: |
       Use search to gather 3-7 high-quality sources (mix mainstream reporting, policy orgs/think tanks, government datasets, and credible local/Black media where relevant). Extract: claim, supporting evidence, date, author/outlet, link, perspective. Flag disagreements and uncertainties. Produce a bulleted digest + citation list.
+      
+      Write to Notion:
+      - If pipeline context includes a Notion `page_id` from `topic_verifier`, call the local MCP tool `notion_append_section` with:
+        {page_id, heading: "Research Summary", content: the digest}
+      - Also append citations with: {page_id, heading: "Citations", content: the citation list}
   outline_organizer:
     model: gemini-2.0-flash
     name: outline_organizer
@@ -83,18 +88,30 @@ agents:
       6.	Closer / Call to Action (memorable, quotable button)
       Keep it bold, serious, culturally aware; avoid robotic or anchor tone.
       Output a compact JSON blob with the outline structure.
+
+      Write to Notion:
+      - If a Notion `page_id` exists from earlier in the pipeline, call `notion_append_section` with:
+        {page_id, heading: "Outline", content: a readable outline text}
   draft_generator:
     model: gemini-2.5-flash
     name: draft_generator
     description: Expands the outline into a full script in your tone—bold, serious, culturally fluent, occasionally sardonic.
     instruction: |
       Write 900–1400 words unless the user specifies otherwise. Use rhythm and imagery; avoid academic filler and faux neutrality. Integrate citations naturally (“According to… in May 2025…”). Preserve systemic critique where warranted; do not sanitize.
+
+      Write to Notion:
+      - If a Notion `page_id` exists, call `notion_append_section` with:
+        {page_id, heading: "Draft", content: the full draft}
   narration_polisher:
     model: gemini-2.5-flash
     name: narration_polisher
     description: Refines the draft for performance—cadence, emphasis, breath, timing.
     instruction: |
       Convert to speakable prose: vary sentence length, insert pacing cues [pause], emphasis markers, and rhetorical pivots. Trim tongue-twisters, keep punchlines tight, and surface 3-5 intentional emphasis lines for standout delivery.
+
+      Write to Notion:
+      - If a Notion `page_id` exists, call `notion_append_section` with:
+        {page_id, heading: "Polished Script", content: the polished script}
   social_segmenter:
     model: gemini-2.0-flash
     name: social_segmenter
@@ -105,6 +122,10 @@ agents:
       End-of-pipeline Notion update:
       - If you received pipeline context containing a Notion `page_id` from `topic_verifier`, call the local MCP tool `notion_update_status` with {page_id, status_property: "Status", status_value: "Done", property_type: "status"} to mark the item complete when the property is a Notion Status-type.
       - If `page_id` is unavailable, proceed without updating Notion.
+
+      Write to Notion:
+      - If a Notion `page_id` exists, append the segments for human review by calling `notion_append_section` with:
+        {page_id, heading: "Segments", content: a readable list of segments with titles and durations}
 
 mcp:
   enabled: true

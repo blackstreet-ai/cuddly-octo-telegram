@@ -424,6 +424,197 @@ def notion_update_status(
     return {"success": resp.status_code == 200, "status": resp.status_code, "data": body}
 
 
+@app.tool()
+def notion_get_database(database_id: str) -> Dict[str, Any]:
+    """Retrieve a Notion database definition (schema and metadata).
+
+    Args:
+        database_id: The Notion database ID to fetch.
+    Returns:
+        Dict with success flag, status code, and raw Notion database JSON under `data`.
+    """
+    headers = _notion_headers()
+    if not headers:
+        return {"success": False, "error": "NOTION_MCP_TOKEN not set in environment"}
+
+    url = f"https://api.notion.com/v1/databases/{database_id}"
+    with httpx.Client(timeout=30) as client:
+        resp = client.get(url, headers=headers)
+        try:
+            body: Dict[str, Any] = resp.json()
+        except Exception:
+            body = {"raw": resp.text}
+
+    return {"success": resp.status_code == 200, "status": resp.status_code, "data": body}
+
+
+@app.tool()
+def notion_update_database_schema(
+    database_id: str,
+    ensure_status: bool = True,
+    status_property: str = "Status",
+    status_values: Optional[List[str]] = None,
+    add_output_properties: bool = False,
+) -> Dict[str, Any]:
+    """Update a Notion database schema to fit the pipeline.
+
+    Operations performed:
+    - Ensure a `Status` property exists (status or select) with values [Not Started, In Progress, Done].
+    - Optionally add long-text output properties used by agents (for users who prefer properties).
+
+    Note: Agents can also write large content as page blocks; properties are optional.
+
+    Args:
+        database_id: Target Notion database ID.
+        ensure_status: When true, create/normalize the Status property and its options.
+        status_property: Name of the status/select property to normalize.
+        status_values: Custom list of status values; defaults to [Not Started, In Progress, Done].
+        add_output_properties: When true, add rich text properties for outputs.
+    Returns:
+        Dict with success flag, status code, and Notion response body under `data`.
+    """
+    headers = _notion_headers()
+    if not headers:
+        return {"success": False, "error": "NOTION_MCP_TOKEN not set in environment"}
+
+    # Defaults for status
+    values = status_values or ["Not Started", "In Progress", "Done"]
+    # Build option objects with sensible colors
+    def _color_for(val: str) -> str:
+        v = val.lower()
+        if "not" in v:
+            return "gray"
+        if "progress" in v:
+            return "yellow"
+        if "done" in v or "complete" in v:
+            return "green"
+        return "default"
+
+    status_options = [{"name": v, "color": _color_for(v)} for v in values]
+
+    # Fetch current schema to decide how to patch
+    url_get = f"https://api.notion.com/v1/databases/{database_id}"
+    url_patch = url_get
+
+    with httpx.Client(timeout=30) as client:
+        get_resp = client.get(url_get, headers=headers)
+        try:
+            db_body: Dict[str, Any] = get_resp.json()
+        except Exception:
+            db_body = {"raw": get_resp.text}
+        if get_resp.status_code != 200:
+            return {"success": False, "status": get_resp.status_code, "data": db_body}
+
+        properties: Dict[str, Any] = db_body.get("properties", {}) or {}
+
+        patch: Dict[str, Any] = {"properties": {}}
+
+        if ensure_status:
+            prop = properties.get(status_property)
+            if not prop:
+                # Create a Status-type property named `status_property` (cannot set options via API)
+                patch["properties"][status_property] = {"status": {}}
+            else:
+                ptype = prop.get("type")
+                if ptype == "status":
+                    # Notion does not allow updating status options via API; send empty status object
+                    patch["properties"][status_property] = {"status": {}}
+                elif ptype == "select":
+                    # For select, options can be set/normalized
+                    patch["properties"][status_property] = {"select": {"options": status_options}}
+                else:
+                    # Can't change types arbitrarily; add a parallel Status prop if needed
+                    alt_name = f"{status_property} (status)"
+                    if alt_name not in properties:
+                        patch["properties"][alt_name] = {"status": {}}
+
+        if add_output_properties:
+            # Only add if not present. Use Rich text for flexibility.
+            def _maybe_add(name: str):
+                if name not in properties:
+                    patch["properties"][name] = {"rich_text": {}}
+
+            _maybe_add("Research Summary")
+            _maybe_add("Citations")
+            _maybe_add("Outline")
+            _maybe_add("Draft")
+            _maybe_add("Polished Script")
+            _maybe_add("Segments")
+
+        # If nothing to change, return early
+        if not patch["properties"]:
+            return {"success": True, "status": 200, "data": {"message": "No schema changes required"}}
+
+        patch_resp = client.patch(url_patch, headers=headers, json=patch)
+        try:
+            patch_body: Dict[str, Any] = patch_resp.json()
+        except Exception:
+            patch_body = {"raw": patch_resp.text}
+
+    return {"success": patch_resp.status_code == 200, "status": patch_resp.status_code, "data": patch_body}
+
+
+@app.tool()
+def notion_append_section(
+    page_id: str,
+    heading: str,
+    content: str,
+    heading_level: int = 2,
+) -> Dict[str, Any]:
+    """Append a section to a Notion page: a heading followed by paragraph blocks.
+
+    Notes:
+    - This performs a simple transformation: split content by double newlines into paragraphs.
+    - For large content, Notion limits rich_text segment lengths; this function chunks long paragraphs.
+
+    Args:
+        page_id: The Notion page ID (target parent block).
+        heading: Section heading text.
+        content: Section body text (plain text; minimal formatting only).
+        heading_level: 1, 2, or 3; default 2.
+    Returns:
+        Dict with success flag, status, and Notion response data.
+    """
+    headers = _notion_headers()
+    if not headers:
+        return {"success": False, "error": "NOTION_MCP_TOKEN not set in environment"}
+
+    def _rt(text: str) -> List[Dict[str, Any]]:
+        return [{"type": "text", "text": {"content": text[:2000]}}]
+
+    # Build children: heading + paragraphs
+    heading_level = max(1, min(3, int(heading_level or 2)))
+    heading_key = {1: "heading_1", 2: "heading_2", 3: "heading_3"}[heading_level]
+
+    children: List[Dict[str, Any]] = [
+        {"object": "block", "type": heading_key, heading_key: {"rich_text": _rt(heading)}}
+    ]
+
+    # Split by blank lines to paragraphs
+    paragraphs = [p.strip() for p in (content or "").split("\n\n") if p.strip()]
+    for p in paragraphs:
+        # Further chunk long paragraphs into ~1800-char segments
+        start = 0
+        while start < len(p):
+            chunk = p[start:start+1800]
+            children.append({
+                "object": "block",
+                "type": "paragraph",
+                "paragraph": {"rich_text": _rt(chunk)}
+            })
+            start += 1800
+
+    url = f"https://api.notion.com/v1/blocks/{page_id}/children"
+    with httpx.Client(timeout=30) as client:
+        resp = client.patch(url, headers=headers, json={"children": children})
+        try:
+            body: Dict[str, Any] = resp.json()
+        except Exception:
+            body = {"raw": resp.text}
+
+    return {"success": resp.status_code in (200, 202), "status": resp.status_code, "data": body}
+
+
 if __name__ == "__main__":
     # Start FastMCP over stdio using the built-in transport handler
     app.run("stdio")
