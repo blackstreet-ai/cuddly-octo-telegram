@@ -560,6 +560,8 @@ def notion_append_section(
     heading: str,
     content: str,
     heading_level: int = 2,
+    detect_lists: bool = True,
+    find_existing: bool = True,
 ) -> Dict[str, Any]:
     """Append a section to a Notion page: a heading followed by paragraph blocks.
 
@@ -572,6 +574,8 @@ def notion_append_section(
         heading: Section heading text.
         content: Section body text (plain text; minimal formatting only).
         heading_level: 1, 2, or 3; default 2.
+        detect_lists: When true, convert lines starting with "- ", "* ", or "1. " into list items.
+        find_existing: When true, append under an existing heading with the same text if present.
     Returns:
         Dict with success flag, status, and Notion response data.
     """
@@ -582,37 +586,108 @@ def notion_append_section(
     def _rt(text: str) -> List[Dict[str, Any]]:
         return [{"type": "text", "text": {"content": text[:2000]}}]
 
-    # Build children: heading + paragraphs
+    # Build children: heading + parsed body blocks
     heading_level = max(1, min(3, int(heading_level or 2)))
     heading_key = {1: "heading_1", 2: "heading_2", 3: "heading_3"}[heading_level]
 
-    children: List[Dict[str, Any]] = [
-        {"object": "block", "type": heading_key, heading_key: {"rich_text": _rt(heading)}}
-    ]
+    # Optionally find an existing heading and insert after it
+    after_block_id: Optional[str] = None
+    created_heading = False
 
-    # Split by blank lines to paragraphs
-    paragraphs = [p.strip() for p in (content or "").split("\n\n") if p.strip()]
-    for p in paragraphs:
-        # Further chunk long paragraphs into ~1800-char segments
-        start = 0
-        while start < len(p):
-            chunk = p[start:start+1800]
-            children.append({
-                "object": "block",
-                "type": "paragraph",
-                "paragraph": {"rich_text": _rt(chunk)}
-            })
-            start += 1800
+    def _paragraph_block(text: str) -> Dict[str, Any]:
+        return {"object": "block", "type": "paragraph", "paragraph": {"rich_text": _rt(text)}}
 
-    url = f"https://api.notion.com/v1/blocks/{page_id}/children"
+    def _bullet_block(text: str) -> Dict[str, Any]:
+        return {"object": "block", "type": "bulleted_list_item", "bulleted_list_item": {"rich_text": _rt(text)}}
+
+    def _numbered_block(text: str) -> Dict[str, Any]:
+        return {"object": "block", "type": "numbered_list_item", "numbered_list_item": {"rich_text": _rt(text)}}
+
+    body_blocks: List[Dict[str, Any]] = []
+
+    import re
+    lines = (content or "").splitlines()
+    para_buf: List[str] = []
+    for raw in lines + [""]:  # sentinel blank to flush
+        line = raw.rstrip("\n")
+        if detect_lists and (line.startswith("- ") or line.startswith("* ")):
+            # flush paragraph buffer first
+            if para_buf:
+                p = " ".join(para_buf).strip()
+                if p:
+                    # chunk long paragraphs
+                    for i in range(0, len(p), 1800):
+                        body_blocks.append(_paragraph_block(p[i:i+1800]))
+                para_buf = []
+            body_blocks.append(_bullet_block(line[2:].strip()))
+        elif detect_lists and re.match(r"^\d+[\.)]\s+", line):
+            if para_buf:
+                p = " ".join(para_buf).strip()
+                if p:
+                    for i in range(0, len(p), 1800):
+                        body_blocks.append(_paragraph_block(p[i:i+1800]))
+                para_buf = []
+            text = re.sub(r"^\d+[\.)]\s+", "", line).strip()
+            body_blocks.append(_numbered_block(text))
+        elif line.strip() == "":
+            # blank line flushes paragraph buffer
+            if para_buf:
+                p = " ".join(para_buf).strip()
+                if p:
+                    for i in range(0, len(p), 1800):
+                        body_blocks.append(_paragraph_block(p[i:i+1800]))
+                para_buf = []
+        else:
+            para_buf.append(line)
+
     with httpx.Client(timeout=30) as client:
-        resp = client.patch(url, headers=headers, json={"children": children})
+        if find_existing:
+            # Search existing children for the heading
+            get_url = f"https://api.notion.com/v1/blocks/{page_id}/children?page_size=100"
+            gr = client.get(get_url, headers=headers)
+            try:
+                children_list = gr.json().get("results", [])
+            except Exception:
+                children_list = []
+            for blk in children_list:
+                if blk.get("type") == heading_key:
+                    rt = (blk.get(heading_key) or {}).get("rich_text") or []
+                    txt = "".join([(t.get("plain_text") or t.get("text", {}).get("content") or "") for t in rt])
+                    if (txt or "").strip() == (heading or "").strip():
+                        after_block_id = blk.get("id")
+                        break
+
+        # If no existing heading found, create it first under page
+        if after_block_id is None:
+            created_heading = True
+            heading_block = {"object": "block", "type": heading_key, heading_key: {"rich_text": _rt(heading)}}
+            create_url = f"https://api.notion.com/v1/blocks/{page_id}/children"
+            cr = client.patch(create_url, headers=headers, json={"children": [heading_block]})
+            try:
+                created = cr.json().get("results", [])
+            except Exception:
+                created = []
+            # On success, use the new heading as parent
+            if created:
+                after_block_id = created[0].get("id")
+
+        # Append body blocks to the page, positioned right after the heading
+        url = f"https://api.notion.com/v1/blocks/{page_id}/children"
+        payload: Dict[str, Any] = {"children": body_blocks or [_paragraph_block("")]}
+        if after_block_id:
+            payload["after"] = after_block_id
+        resp = client.patch(url, headers=headers, json=payload)
         try:
             body: Dict[str, Any] = resp.json()
         except Exception:
             body = {"raw": resp.text}
 
-    return {"success": resp.status_code in (200, 202), "status": resp.status_code, "data": body}
+    return {
+        "success": resp.status_code in (200, 202),
+        "status": resp.status_code,
+        "data": body,
+        "appended_under_existing": (not created_heading and after_block_id is not None),
+    }
 
 
 if __name__ == "__main__":
