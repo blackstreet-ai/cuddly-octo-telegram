@@ -4,7 +4,7 @@ Use this template to add features consistently to this ADK-based multi-agent pip
 - `src/orchestration/coordinator.py`
 - `config/runconfig.yaml`
 - `src/tools/` (`mcp.py`, `local_mcp_server.py`)
-- `tests/` (`test_wiring.py`, `test_firecrawl_search.py`, `test_notion.py`)
+- `tests/` (`test_wiring.py`, `test_notion.py`)
 - `README.md`, `pyproject.toml`
 
 The coordinator supports both legacy “greeter/executor” and the pipeline stages:
@@ -26,7 +26,7 @@ The coordinator supports both legacy “greeter/executor” and the pipeline sta
 ## 2) Pre-flight Checklist
 
 - Environment ready with uv and Python 3.11+.
-- `.env` updated for required keys (e.g., `GOOGLE_API_KEY`, `FIRECRAWL_API_KEY`, `NOTION_MCP_TOKEN`).
+- `.env` updated for required keys (e.g., `GOOGLE_API_KEY`, `TAVILY_API_KEY`, `NOTION_MCP_TOKEN`).
 - Dependencies synced:
   - `uv sync`
 - Test baseline:
@@ -60,7 +60,6 @@ agents:
 
 ## 4) Tooling & MCP
 
-- For remote SSE MCP (e.g., Firecrawl), configure `config/runconfig.yaml → mcp.connection`.
 - For local, privacy-friendly stdio tools, use `src/tools/local_mcp_server.py` and set `connection.type: stdio`.
 
 Add a new local MCP tool (Python skeleton in `src/tools/local_mcp_server.py`):
@@ -78,14 +77,7 @@ def my_new_tool(arg1: str, limit: int = 5) -> dict:
     return {"ok": True, "items": []}
 ```
 
-If you need to construct MCP toolsets in-app (beyond local server), use/extend `src/tools/mcp.py → build_mcp_toolset_from_config()` or pass a tool filter in YAML:
-
-```yaml
-mcp:
-  enabled: true
-  tool_filter:
-    - "firecrawl_search"
-```
+If you need to construct MCP toolsets in-app (beyond local server), use/extend `src/tools/mcp.py → build_mcp_toolset_from_config()`.
 
 ---
 
@@ -104,7 +96,7 @@ If adding a new fixed-order stage, update:
 ## 6) Tests
 
 - Unit test tools:
-  - Follow `tests/test_firecrawl_search.py`. Mock network clients, assert request structure and response shape.
+  - Mock network clients, assert request structure and response shape.
 - Wiring tests:
   - Follow `tests/test_wiring.py` to assert coordinator type and sub-agent presence.
 - External service tests:
@@ -136,7 +128,6 @@ Run:
   - `python -m src.app --task "Generate a commentary script on X" --log-level INFO`
 - If relying on MCP:
   - Ensure `mcp.enabled: true` and correct `connection.type` in `config/runconfig.yaml`.
-  - For Firecrawl: verify `FIRECRAWL_API_KEY` set and `firecrawl_search` returns data.
 - Verify output files (if enabled):
   - Check `./pipeline_outputs/` naming and formats per `README.md`.
 

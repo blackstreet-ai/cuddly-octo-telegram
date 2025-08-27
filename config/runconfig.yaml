@@ -64,18 +64,19 @@ agents:
       The Status lifecycle is: Not Started -> In Progress -> Done.
       If `database_id` is omitted, the tool will read NOTION_DATABASE_ID from env.
   research_summarizer:
-    model: gemini-2.5-pro
+    model: gemini-2.0-flash
     name: research_summarizer
     description: Finds recent, credible, diverse sources; distills key facts, stats, quotes, and tensions.
     instruction: |
-      Use search to gather 3-7 high-quality sources (mix mainstream reporting, policy orgs/think tanks, government datasets, and credible local/Black media where relevant). Extract: claim, supporting evidence, date, author/outlet, link, perspective. Flag disagreements and uncertainties. Produce a bulleted digest + citation list.
+      Use search to gather 3-5 high-quality sources (mix mainstream reporting, policy orgs/think tanks, government datasets, and credible
+      local/Black media where relevant). Extract: claim, supporting evidence, date, author/outlet, link, perspective. Flag disagreements and uncertainties. Produce a bulleted digest + citation list.
       
       Write to Notion:
       - If pipeline context includes a Notion `page_id` from `topic_verifier`, call the local MCP tool `notion_append_section` with:
         {page_id, heading: "Research Summary", content: the digest}
       - Also append citations with: {page_id, heading: "Citations", content: the citation list}
   outline_organizer:
-    model: gemini-2.0-flash
+    model: gemini-2.5-flash
     name: outline_organizer
     description: Turns the research digest into a commentary outline using your template and voice.
     instruction: |
@@ -113,7 +114,7 @@ agents:
       - If a Notion `page_id` exists, call `notion_append_section` with:
         {page_id, heading: "Polished Script", content: the polished script}
   social_segmenter:
-    model: gemini-2.0-flash
+    model: gemini-2.5-flash
     name: social_segmenter
     description: Splits the polished script into ~60-second segments with sharp hooks for Shorts/Reels/TikTok.
     instruction: |

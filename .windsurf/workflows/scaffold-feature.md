@@ -8,7 +8,7 @@ This workflow helps you scaffold a new feature for the BSJ Script Writer, aligne
 Prereqs:
 - Python 3.11+, uv installed
 - Dependencies synced (uv sync)
-- .env configured as needed (GOOGLE_API_KEY, FIRECRAWL_API_KEY, NOTION_MCP_TOKEN)
+- .env configured as needed (GOOGLE_API_KEY, TAVILY_API_KEY, NOTION_MCP_TOKEN)
 
 1) Review the feature template
 - Open and skim `docs/templates/feature-template.md`.
@@ -67,7 +67,7 @@ def my_new_tool(arg1: str, limit: int = 5) -> dict:
 
 7) Add tests
 - Create `tests/test_<your-key>.py`.
-- For tools, mock network/IO similar to `tests/test_firecrawl_search.py`.
+- For tools, mock network/IO and assert request/response structure.
 - For wiring, assert coordinator and presence/order similar to `tests/test_wiring.py`.
 
 Minimal wiring test example:

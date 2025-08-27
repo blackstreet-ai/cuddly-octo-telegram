@@ -5,7 +5,6 @@ Tools provided:
 - http_fetch(url: str) -> {status, headers, text}
 - extract_text(html: str) -> {text}
 - tavily_search(...) -> Tavily web search response summary
-- firecrawl_search(...) -> Firecrawl search response summary (kept for backward-compat)
 
 Implementation uses the MCP Python library's FastMCP helper for a minimal server
 that communicates over stdio. The app will spawn this as a subprocess when
@@ -16,6 +15,8 @@ from __future__ import annotations
 
 import os
 import re
+import time
+import random
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -23,10 +24,58 @@ from mcp.server.fastmcp import FastMCP
 from dotenv import load_dotenv
 
 
-# Load variables from .env so subprocess has access to keys like FIRECRAWL_API_KEY
+# Load variables from .env so subprocess has access to keys like TAVILY_API_KEY, NOTION_MCP_TOKEN
 load_dotenv()
 
 app = FastMCP("local-mcp-tools")
+
+
+# Simple HTTP retry helper for Notion API (handles 429 with backoff)
+def _request_with_retry(
+    client: httpx.Client,
+    method: str,
+    url: str,
+    *,
+    headers: Optional[Dict[str, str]] = None,
+    json: Optional[Dict[str, Any]] = None,
+    max_retries: Optional[int] = None,
+    base_delay: Optional[float] = None,
+    max_delay: Optional[float] = None,
+) -> httpx.Response:
+    attempt = 0
+    # Allow environment to override defaults
+    if max_retries is None:
+        try:
+            max_retries = int(os.getenv("NOTION_MAX_RETRIES", "5"))
+        except Exception:
+            max_retries = 5
+    if base_delay is None:
+        try:
+            base_delay = float(os.getenv("NOTION_BASE_DELAY", "0.6"))
+        except Exception:
+            base_delay = 0.6
+    if max_delay is None:
+        try:
+            max_delay = float(os.getenv("NOTION_MAX_DELAY", "8.0"))
+        except Exception:
+            max_delay = 8.0
+    while True:
+        resp = client.request(method.upper(), url, headers=headers, json=json)
+        if resp.status_code != 429 or attempt >= max_retries:
+            return resp
+        # Respect Retry-After if present (seconds)
+        retry_after = resp.headers.get("Retry-After")
+        if retry_after:
+            try:
+                delay = float(retry_after)
+            except Exception:
+                delay = base_delay
+        else:
+            # Exponential backoff with jitter
+            delay = min(max_delay, base_delay * (2 ** attempt))
+            delay = delay * (0.8 + 0.4 * random.random())
+        time.sleep(delay)
+        attempt += 1
 
 
 @app.tool()
@@ -133,70 +182,7 @@ def tavily_search(
     }
 
 
-@app.tool()
-def firecrawl_search(
-    query: str,
-    limit: int = 5,
-    sources: Optional[List[str]] = None,
-    scrape_formats: Optional[List[str]] = None,
-    tbs: Optional[str] = None,
-    location: Optional[str] = None,
-    timeout_ms: Optional[int] = None,
-) -> Dict[str, Any]:
-    """Search the web via Firecrawl and optionally scrape result content.
-
-    Args:
-        query: Search query string.
-        limit: Max number of results to return.
-        sources: Optional list of sources, e.g. ["web"], ["news"], ["images"].
-        scrape_formats: Optional list of formats to scrape, e.g. ["markdown", "links"].
-        tbs: Time-based search filter (e.g., "qdr:d" for past day).
-        location: Geographic location (e.g., "Germany").
-        timeout_ms: Timeout in milliseconds for the search.
-
-    Returns:
-        JSON-serializable dict including status, success, and data payload.
-    """
-    api_key = os.getenv("FIRECRAWL_API_KEY")
-    if not api_key:
-        return {"success": False, "error": "FIRECRAWL_API_KEY is not set in environment"}
-
-    payload: Dict[str, Any] = {
-        "query": query,
-        "limit": int(limit or 5),
-    }
-    if sources:
-        payload["sources"] = list(sources)
-    if tbs:
-        payload["tbs"] = tbs
-    if location:
-        payload["location"] = location
-    if timeout_ms is not None:
-        payload["timeout"] = int(timeout_ms)
-    if scrape_formats:
-        payload["scrapeOptions"] = {"formats": list(scrape_formats)}
-
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-
-    with httpx.Client(timeout=30) as client:
-        resp = client.post(
-            "https://api.firecrawl.dev/v2/search",
-            headers=headers,
-            json=payload,
-        )
-        try:
-            body: Dict[str, Any] = resp.json()
-        except Exception:
-            body = {"raw": resp.text}
-
-    return {
-        "status": resp.status_code,
-        "success": bool(body.get("success", resp.status_code == 200)),
-        "data": body.get("data", body),
-    }
+# Firecrawl tool removed by request; Tavily remains the supported search tool.
 
 
 # ------------------------------
@@ -279,7 +265,7 @@ def notion_query_eligible(
 
     def _try_query(client: httpx.Client, filter_key: str, value: str) -> tuple[int, Dict[str, Any]]:
         url = f"https://api.notion.com/v1/databases/{database_id}/query"
-        resp = client.post(url, headers=headers, json=_build_payload(filter_key, value))
+        resp = _request_with_retry(client, "POST", url, headers=headers, json=_build_payload(filter_key, value))
         try:
             data = resp.json()
         except Exception:
@@ -387,7 +373,7 @@ def notion_update_status(
         fallback_key = "status" if preferred_key == "select" else "select"
 
         # Try preferred key first
-        resp = client.patch(url, headers=headers, json=_payload(preferred_key, status_value))
+        resp = _request_with_retry(client, "PATCH", url, headers=headers, json=_payload(preferred_key, status_value))
         try:
             body: Dict[str, Any] = resp.json()
         except Exception:
@@ -395,7 +381,7 @@ def notion_update_status(
 
         if resp.status_code != 200:
             # Try fallback key
-            resp = client.patch(url, headers=headers, json=_payload(fallback_key, status_value))
+            resp = _request_with_retry(client, "PATCH", url, headers=headers, json=_payload(fallback_key, status_value))
             try:
                 body = resp.json()
             except Exception:
@@ -404,7 +390,7 @@ def notion_update_status(
         if resp.status_code != 200:
             # Try alternate capitalizations on both keys
             for v in _alt_values(status_value):
-                resp = client.patch(url, headers=headers, json=_payload(preferred_key, v))
+                resp = _request_with_retry(client, "PATCH", url, headers=headers, json=_payload(preferred_key, v))
                 try:
                     body = resp.json()
                 except Exception:
@@ -413,7 +399,7 @@ def notion_update_status(
                     break
             if resp.status_code != 200:
                 for v in _alt_values(status_value):
-                    resp = client.patch(url, headers=headers, json=_payload(fallback_key, v))
+                    resp = _request_with_retry(client, "PATCH", url, headers=headers, json=_payload(fallback_key, v))
                     try:
                         body = resp.json()
                     except Exception:
@@ -439,7 +425,7 @@ def notion_get_database(database_id: str) -> Dict[str, Any]:
 
     url = f"https://api.notion.com/v1/databases/{database_id}"
     with httpx.Client(timeout=30) as client:
-        resp = client.get(url, headers=headers)
+        resp = _request_with_retry(client, "GET", url, headers=headers)
         try:
             body: Dict[str, Any] = resp.json()
         except Exception:
@@ -497,7 +483,7 @@ def notion_update_database_schema(
     url_patch = url_get
 
     with httpx.Client(timeout=30) as client:
-        get_resp = client.get(url_get, headers=headers)
+        get_resp = _request_with_retry(client, "GET", url_get, headers=headers)
         try:
             db_body: Dict[str, Any] = get_resp.json()
         except Exception:
@@ -545,7 +531,7 @@ def notion_update_database_schema(
         if not patch["properties"]:
             return {"success": True, "status": 200, "data": {"message": "No schema changes required"}}
 
-        patch_resp = client.patch(url_patch, headers=headers, json=patch)
+        patch_resp = _request_with_retry(client, "PATCH", url_patch, headers=headers, json=patch)
         try:
             patch_body: Dict[str, Any] = patch_resp.json()
         except Exception:
@@ -560,6 +546,9 @@ def notion_append_section(
     heading: str,
     content: str,
     heading_level: int = 2,
+    detect_lists: bool = True,
+    find_existing: bool = True,
+    mode: str = "append",
 ) -> Dict[str, Any]:
     """Append a section to a Notion page: a heading followed by paragraph blocks.
 
@@ -572,6 +561,10 @@ def notion_append_section(
         heading: Section heading text.
         content: Section body text (plain text; minimal formatting only).
         heading_level: 1, 2, or 3; default 2.
+        detect_lists: When true, convert lines starting with "- ", "* ", or "1. " into list items.
+        find_existing: When true, append under an existing heading with the same text if present.
+        mode: "append" (default) to append after the heading, or "replace" to delete existing blocks
+              between this heading and the next heading before appending fresh content.
     Returns:
         Dict with success flag, status, and Notion response data.
     """
@@ -580,39 +573,308 @@ def notion_append_section(
         return {"success": False, "error": "NOTION_MCP_TOKEN not set in environment"}
 
     def _rt(text: str) -> List[Dict[str, Any]]:
-        return [{"type": "text", "text": {"content": text[:2000]}}]
+        """Convert plain text with simple inline markdown to Notion rich_text.
 
-    # Build children: heading + paragraphs
+        Supported spans:
+        - `code`
+        - **bold**
+        - *italic* or _italic_
+
+        Notes:
+        - This is a lightweight tokenizer; it does not handle complex nesting.
+        - Each Notion text segment is chunked to <= 2000 chars preserving annotations.
+        """
+        import re as _re
+
+        def _mk_segment(txt: str, bold: bool = False, italic: bool = False, code: bool = False) -> Dict[str, Any]:
+            return {
+                "type": "text",
+                "text": {"content": txt},
+                "annotations": {"bold": bool(bold), "italic": bool(italic), "code": bool(code)},
+            }
+
+        # Split into tokens: code, bold, italic, or plain
+        pattern = _re.compile(r"(`[^`]+`|\*\*[^*]+\*\*|\*[^*\n]+\*|_[^_\n]+_)")
+        tokens: List[Dict[str, Any]] = []
+
+        idx = 0
+        for m in pattern.finditer(text or ""):
+            if m.start() > idx:
+                plain = (text or "")[idx : m.start()]
+                if plain:
+                    tokens.append(_mk_segment(plain))
+            span = m.group(0)
+            if span.startswith("`") and span.endswith("`"):
+                inner = span[1:-1]
+                tokens.append(_mk_segment(inner, code=True))
+            elif span.startswith("**") and span.endswith("**"):
+                inner = span[2:-2]
+                tokens.append(_mk_segment(inner, bold=True))
+            elif span.startswith("*") and span.endswith("*"):
+                inner = span[1:-1]
+                tokens.append(_mk_segment(inner, italic=True))
+            elif span.startswith("_") and span.endswith("_"):
+                inner = span[1:-1]
+                tokens.append(_mk_segment(inner, italic=True))
+            idx = m.end()
+        # Trailing plain text
+        if (text or "") and idx < len(text):
+            trailing = text[idx:]
+            if trailing:
+                tokens.append(_mk_segment(trailing))
+
+        # Chunk segments to 2000 chars to satisfy Notion limits
+        chunked: List[Dict[str, Any]] = []
+        for t in tokens or [_mk_segment("")]:
+            content = t["text"]["content"]
+            bold = t.get("annotations", {}).get("bold", False)
+            italic = t.get("annotations", {}).get("italic", False)
+            code = t.get("annotations", {}).get("code", False)
+            if len(content) <= 2000:
+                chunked.append(t)
+            else:
+                for i in range(0, len(content), 2000):
+                    chunked.append(_mk_segment(content[i : i + 2000], bold=bold, italic=italic, code=code))
+        return chunked
+
+    # Build children: heading + parsed body blocks
     heading_level = max(1, min(3, int(heading_level or 2)))
     heading_key = {1: "heading_1", 2: "heading_2", 3: "heading_3"}[heading_level]
 
-    children: List[Dict[str, Any]] = [
-        {"object": "block", "type": heading_key, heading_key: {"rich_text": _rt(heading)}}
-    ]
+    # Optionally find an existing heading and insert after it
+    after_block_id: Optional[str] = None
+    created_heading = False
 
-    # Split by blank lines to paragraphs
-    paragraphs = [p.strip() for p in (content or "").split("\n\n") if p.strip()]
-    for p in paragraphs:
-        # Further chunk long paragraphs into ~1800-char segments
-        start = 0
-        while start < len(p):
-            chunk = p[start:start+1800]
-            children.append({
-                "object": "block",
-                "type": "paragraph",
-                "paragraph": {"rich_text": _rt(chunk)}
-            })
-            start += 1800
+    def _paragraph_block(text: str) -> Dict[str, Any]:
+        return {"object": "block", "type": "paragraph", "paragraph": {"rich_text": _rt(text)}}
 
-    url = f"https://api.notion.com/v1/blocks/{page_id}/children"
+    def _bullet_block(text: str) -> Dict[str, Any]:
+        return {"object": "block", "type": "bulleted_list_item", "bulleted_list_item": {"rich_text": _rt(text)}}
+
+    def _numbered_block(text: str) -> Dict[str, Any]:
+        return {"object": "block", "type": "numbered_list_item", "numbered_list_item": {"rich_text": _rt(text)}}
+
+    body_blocks: List[Dict[str, Any]] = []
+
+    import re
+    lines = (content or "").splitlines()
+
+    # Determine indent size (spaces per level) from the content, default to 2
+    indent_candidates: List[int] = []
+    list_pat_bullet = re.compile(r"^(?P<indent>\s*)(?:[-*])\s+(?P<text>.+)$")
+    list_pat_number = re.compile(r"^(?P<indent>\s*)\d+[\.)]\s+(?P<text>.+)$")
+    for l in lines:
+        m = list_pat_bullet.match(l) or list_pat_number.match(l)
+        if m:
+            ind = len(m.group("indent") or "")
+            if ind > 0:
+                indent_candidates.append(ind)
+    indent_size = min(indent_candidates) if indent_candidates else 2
+
+    def _make_block(kind: str, text: str) -> Dict[str, Any]:
+        if kind == "bullet":
+            return {"object": "block", "type": "bulleted_list_item", "bulleted_list_item": {"rich_text": _rt(text)}, "children": []}
+        else:
+            return {"object": "block", "type": "numbered_list_item", "numbered_list_item": {"rich_text": _rt(text)}, "children": []}
+
+    para_buf: List[str] = []
+    list_stack: List[tuple[int, Dict[str, Any]]] = []  # (level, block)
+
+    def _flush_paragraph():
+        nonlocal para_buf, body_blocks, list_stack
+        if not para_buf:
+            return
+        p = " ".join(para_buf).strip()
+        if p:
+            for i in range(0, len(p), 1800):
+                body_blocks.append(_paragraph_block(p[i:i + 1800]))
+        para_buf = []
+        # A paragraph ends any active list context for our simple parser
+        list_stack = []
+
+    for raw in lines + [""]:
+        line = raw.rstrip("\n")
+        # Handle list items with optional indentation
+        if detect_lists:
+            mb = list_pat_bullet.match(line)
+            mn = list_pat_number.match(line)
+            if mb or mn:
+                _flush_paragraph()
+                text = (mb or mn).group("text").strip()
+                spaces = len((mb or mn).group("indent") or "")
+                level = spaces // max(1, indent_size)
+                kind = "bullet" if mb else "number"
+                block = _make_block("bullet" if mb else "number", text)
+
+                # Find correct parent by unwinding to the right level
+                while list_stack and list_stack[-1][0] >= level:
+                    list_stack.pop()
+                if list_stack:
+                    parent = list_stack[-1][1]
+                    parent.setdefault("children", []).append(block)
+                else:
+                    body_blocks.append(block)
+                list_stack.append((level, block))
+                continue
+
+        if line.strip() == "":
+            # Blank line flushes paragraph
+            _flush_paragraph()
+        else:
+            # Normal paragraph text
+            para_buf.append(line)
+
     with httpx.Client(timeout=30) as client:
-        resp = client.patch(url, headers=headers, json={"children": children})
-        try:
-            body: Dict[str, Any] = resp.json()
-        except Exception:
-            body = {"raw": resp.text}
+        if find_existing:
+            # Search existing children for the heading
+            get_url = f"https://api.notion.com/v1/blocks/{page_id}/children?page_size=100"
+            gr = _request_with_retry(client, "GET", get_url, headers=headers)
+            try:
+                children_list = gr.json().get("results", [])
+            except Exception:
+                children_list = []
+            for blk in children_list:
+                if blk.get("type") == heading_key:
+                    rt = (blk.get(heading_key) or {}).get("rich_text") or []
+                    txt = "".join([(t.get("plain_text") or t.get("text", {}).get("content") or "") for t in rt])
+                    if (txt or "").strip() == (heading or "").strip():
+                        after_block_id = blk.get("id")
+                        break
 
-    return {"success": resp.status_code in (200, 202), "status": resp.status_code, "data": body}
+        # If no existing heading found, create it first under page
+        if after_block_id is None:
+            created_heading = True
+            heading_block = {"object": "block", "type": heading_key, heading_key: {"rich_text": _rt(heading)}}
+            create_url = f"https://api.notion.com/v1/blocks/{page_id}/children"
+            cr = _request_with_retry(client, "PATCH", create_url, headers=headers, json={"children": [heading_block]})
+            try:
+                created = cr.json().get("results", [])
+            except Exception:
+                created = []
+            # On success, use the new heading as parent
+            if created:
+                after_block_id = created[0].get("id")
+
+        # If replace mode, delete existing blocks after the heading up to the next heading
+        if mode and str(mode).lower() == "replace" and after_block_id:
+            # Gather all children to find the range to delete
+            # We need the parent page's direct children to determine sequence
+            list_url = f"https://api.notion.com/v1/blocks/{page_id}/children?page_size=100"
+            all_children: List[Dict[str, Any]] = []
+            next_cursor: Optional[str] = None
+            while True:
+                url_q = list_url + (f"&start_cursor={next_cursor}" if next_cursor else "")
+                lr = _request_with_retry(client, "GET", url_q, headers=headers)
+                try:
+                    payload = lr.json()
+                except Exception:
+                    payload = {"results": []}
+                all_children.extend(payload.get("results", []) or [])
+                if not payload.get("has_more"):
+                    break
+                next_cursor = payload.get("next_cursor")
+
+            # Find index of our heading and next heading
+            idx_heading = None
+            for i, blk in enumerate(all_children):
+                if blk.get("id") == after_block_id:
+                    idx_heading = i
+                    break
+            if idx_heading is not None:
+                next_heading_idx = None
+                for j in range(idx_heading + 1, len(all_children)):
+                    t = all_children[j].get("type")
+                    if t in ("heading_1", "heading_2", "heading_3"):
+                        next_heading_idx = j
+                        break
+                # Determine slice to delete: from idx_heading+1 up to next_heading_idx (exclusive) or to end
+                delete_slice = all_children[idx_heading + 1 : (next_heading_idx if next_heading_idx is not None else len(all_children))]
+                for blk in delete_slice:
+                    bid = blk.get("id")
+                    if not bid:
+                        continue
+                    del_url = f"https://api.notion.com/v1/blocks/{bid}"
+                    _request_with_retry(client, "DELETE", del_url, headers=headers)
+
+        # Append body blocks to the page, positioned right after the heading
+        url = f"https://api.notion.com/v1/blocks/{page_id}/children"
+
+        def _sanitize(block: Dict[str, Any]) -> Dict[str, Any]:
+            """Ensure block has correct structure and drop empty children arrays."""
+            t = block.get("type")
+            # map of required key for type
+            req = {
+                "paragraph": "paragraph",
+                "bulleted_list_item": "bulleted_list_item",
+                "numbered_list_item": "numbered_list_item",
+                "heading_1": "heading_1",
+                "heading_2": "heading_2",
+                "heading_3": "heading_3",
+            }
+            if t in req and req[t] not in block:
+                # If missing, convert to paragraph as a fallback
+                text = ""
+                if t in ("bulleted_list_item", "numbered_list_item"):
+                    # try to recover text from wrong key
+                    other = block.get("bulleted_list_item") or block.get("numbered_list_item") or {}
+                    r = other.get("rich_text") or []
+                    text = "".join([seg.get("text", {}).get("content", "") for seg in r])
+                elif t.startswith("heading_"):
+                    other = block.get(t) or {}
+                    r = other.get("rich_text") or []
+                    text = "".join([seg.get("text", {}).get("content", "") for seg in r])
+                else:
+                    other = block.get("paragraph") or {}
+                    r = other.get("rich_text") or []
+                    text = "".join([seg.get("text", {}).get("content", "") for seg in r])
+                block = {"object": "block", "type": "paragraph", "paragraph": {"rich_text": _rt(text)}}
+                t = "paragraph"
+            # Recurse children
+            ch = block.get("children")
+            if isinstance(ch, list):
+                new_children = []
+                for c in ch:
+                    sc = _sanitize(c)
+                    # Drop if becomes empty paragraph
+                    if sc.get("type") != "paragraph" or sc.get("paragraph", {}).get("rich_text"):
+                        new_children.append(sc)
+                if new_children:
+                    block["children"] = new_children
+                else:
+                    block.pop("children", None)
+            return block
+
+        # Sanitize and batch
+        sanitized = [_sanitize(b) for b in (body_blocks or [_paragraph_block("")])]
+        results_body: Dict[str, Any] = {"results": []}
+        # Notion recommends keeping request size modest; batch by 50
+        for i in range(0, len(sanitized), 50):
+            batch = sanitized[i : i + 50]
+            payload: Dict[str, Any] = {"children": batch}
+            if after_block_id:
+                payload["after"] = after_block_id
+                # After first insert, subsequent inserts should go after the last inserted block
+            resp = _request_with_retry(client, "PATCH", url, headers=headers, json=payload)
+            try:
+                bpart: Dict[str, Any] = resp.json()
+            except Exception:
+                bpart = {"raw": resp.text}
+            # Update after_block_id to last inserted block id if available
+            try:
+                inserted = bpart.get("results", [])
+                if inserted:
+                    after_block_id = inserted[-1].get("id", after_block_id)
+                results_body.setdefault("batches", []).append(bpart)
+            except Exception:
+                pass
+        body = results_body
+
+    return {
+        "success": resp.status_code in (200, 202),
+        "status": resp.status_code,
+        "data": body,
+        "appended_under_existing": (not created_heading and after_block_id is not None),
+    }
 
 
 if __name__ == "__main__":
