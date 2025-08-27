@@ -8,7 +8,7 @@ A specialized multi-agent system for generating commentary scripts using Google'
 - **Multi-Agent Architecture**: Coordinator orchestrates specialized sub-agents
 - **Notion Integration**: Optional MCP connection for topic management
 - **CLI Interface**: Single-shot and interactive modes
-- **Configurable Models**: Uses Gemini 2.5 Pro/Flash for different stages
+- **Configurable Models**: Uses a mix of Gemini Flash models per stage (see config)
 - **Social Media Ready**: Outputs optimized for Shorts/Reels/TikTok
 
 ## Prerequisites
@@ -16,7 +16,6 @@ A specialized multi-agent system for generating commentary scripts using Google'
 - Python 3.11+
 - A Google AI Studio API key (or Vertex AI credentials)
 - Optional: Tavily API key (preferred for web search via local MCP)
-- Optional: Firecrawl API key (backward-compat only)
 
 ## Setup
 
@@ -41,9 +40,6 @@ cp .env.sample .env
 
 # Optional: Configure Tavily (preferred web search)
 # TAVILY_API_KEY=tvly-xxxxxxx
-
-# Optional: Configure Firecrawl (backward-compat)
-# FIRECRAWL_API_KEY=fc-xxxxxxx
 ```
 
 ### Dependency management
@@ -109,9 +105,13 @@ Markdown files contain the extracted text. JSON files contain safe metadata (eve
 
 ### Agent Models
 
-The system uses different Gemini models for optimal performance:
-- **Coordinator**: `gemini-2.5-pro` (complex orchestration)
-- **Sub-agents**: `gemini-2.5-flash` (specialized tasks)
+Models are configured in `config/runconfig.yaml` and can be adjusted as needed. Current defaults:
+- **Coordinator**: `gemini-2.0-flash-lite`
+- **Research Summarizer**: `gemini-2.0-flash`
+- **Outline Organizer**: `gemini-2.5-flash`
+- **Draft Generator**: `gemini-2.5-flash`
+- **Narration Polisher**: `gemini-2.5-flash`
+- **Social Segmenter**: `gemini-2.5-flash`
 
 ### Run-time Controls (YAML)
 
@@ -156,46 +156,14 @@ mcp:
         NOTION_TOKEN: "your_notion_token_here"
 ```
 
-### Firecrawl MCP (Web search/scrape)
+### Web search MCP
 
-Firecrawl powers web search/scrape for the Research stage via MCP.
+We use Tavily for web search via the local MCP server.
 
 1) Set your API key in `.env`:
 
 ```bash
-FIRECRAWL_API_KEY=fc-xxxxxxx
-```
-
-2) Default config (remote SSE) — already set in `config/runconfig.yaml`:
-
-```yaml
-mcp:
-  enabled: true
-  connection:
-    type: sse
-    stdio:
-      command: npx
-      args: ["-y", "firecrawl-mcp"]
-      env:
-        FIRECRAWL_API_KEY: "${ENV:FIRECRAWL_API_KEY}"
-    sse:
-      url: "https://mcp.firecrawl.dev/${ENV:FIRECRAWL_API_KEY}/sse"
-      headers: {}
-# All Firecrawl tools are exposed by default (no tool_filter)
-```
-
-3) Optional: Local stdio (privacy/offline-friendly). Switch `type: stdio` and run the server locally:
-
-```bash
-env FIRECRAWL_API_KEY=$FIRECRAWL_API_KEY npx -y firecrawl-mcp
-```
-
-If you prefer to restrict tool usage, you can add a `tool_filter`:
-
-```yaml
-mcp:
-  tool_filter:
-    - "firecrawl_search"
+TAVILY_API_KEY=tvly-xxxxxxx
 ```
 
 ### Local MCP (stdio)
@@ -220,7 +188,6 @@ mcp:
 - `http_fetch(url: str)` → `{status, headers, text}`
 - `extract_text(html: str)` → `{text}`
 - `tavily_search(query: str, max_results: int = 5, search_depth: "basic"|"advanced", include_answer?: bool, include_domains?: [str], exclude_domains?: [str])` → Tavily search response
-- `firecrawl_search(...)` → legacy, kept for backward compatibility
 
 These are implemented in `src/tools/local_mcp_server.py`.
 
@@ -230,17 +197,16 @@ These are implemented in `src/tools/local_mcp_server.py`.
 uv run python -m src.app --task "Outline a commentary on X without external web research." --log-level DEBUG
 ```
 
-### Tavily swap note
+### Tavily note
 
-- We replaced Firecrawl as the default search with Tavily for reliability and cost control.
-- The new MCP tool is implemented in `src/tools/local_mcp_server.py` as `tavily_search()`.
+- Tavily is used for search to improve reliability and control costs.
+- The MCP tool is implemented in `src/tools/local_mcp_server.py` as `tavily_search()`.
 - To enable:
   1. Set your key in `.env`:
      ```bash
      TAVILY_API_KEY=tvly-xxxxxxx
      ```
   2. Ensure MCP connection is `type: stdio` in `config/runconfig.yaml` (already configured).
-- Firecrawl config and SSE block were removed from `config/runconfig.yaml`. The `firecrawl_search` tool remains available but is considered legacy.
 
 ## Testing
 
@@ -261,14 +227,14 @@ uv run pytest -q
 - **"Context variable not found"** — Ensure pipeline stages don't reference undefined variables
 - **Virtual environment** — Always activate: `source .venv/bin/activate`
 - **"Tool or function not found (e.g., search)"** — Ensure required tools are registered/enabled in config. If you disabled MCP or external tools, the Research stage may fail. Re-enable the relevant tool integration or adjust the Research instruction to avoid external calls.
-- **SSE vs stdio** — Remote SSE is turnkey but depends on network; if flaky or for local privacy, switch to `connection.type: stdio` and run `npx -y firecrawl-mcp` locally with `FIRECRAWL_API_KEY`.
+- **SSE vs stdio** — For local privacy and reliability, use `connection.type: stdio` and the built-in local MCP server in `src/tools/local_mcp_server.py`.
 
 ## Architecture
 
 ```
 BSJ Script Writer
-├── Coordinator (gemini-2.5-pro)
-│   ├── Research Summarizer (gemini-2.5-flash)
+├── Coordinator (gemini-2.0-flash-lite)
+│   ├── Research Summarizer (gemini-2.0-flash)
 │   ├── Outline Organizer (gemini-2.5-flash)
 │   ├── Draft Generator (gemini-2.5-flash)
 │   ├── Narration Polisher (gemini-2.5-flash)
